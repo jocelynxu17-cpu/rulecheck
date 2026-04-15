@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-primary: #4f8cff;
+  --color-bg-soft: #f5f9ff;
+  --color-border: #e6eef8;
+  --color-ink: #1a1a1a;
+  --color-ink-secondary: #6b7280;
+}
+
+html {
+  color: var(--color-ink);
+}
+
+body {
+  @apply min-h-screen antialiased bg-page-gradient text-ink;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
