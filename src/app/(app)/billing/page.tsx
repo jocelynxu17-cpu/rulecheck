@@ -4,16 +4,22 @@ import { Badge } from "@/components/ui/badge";
 import { CheckoutButton } from "@/components/billing/CheckoutButton";
 import { PortalButton } from "@/components/billing/PortalButton";
 
-type SearchParams = { checkout?: string | string[] };
+/** Next.js App Router：searchParams 值可能是字串或字串陣列（重複 query key）。 */
+function getSingleSearchParam(
+  searchParams: Record<string, string | string[] | undefined>,
+  key: string
+): string | undefined {
+  const value = searchParams[key];
+  if (value === undefined) return undefined;
+  return Array.isArray(value) ? value[0] : value;
+}
 
-export default async function BillingPage({
-  searchParams,
-}: {
-  searchParams: SearchParams | Promise<SearchParams>;
-}) {
-  const sp = await Promise.resolve(searchParams);
-  const checkoutRaw = sp.checkout;
-  const checkout = Array.isArray(checkoutRaw) ? checkoutRaw[0] : checkoutRaw;
+type BillingPageProps = {
+  searchParams: Record<string, string | string[] | undefined>;
+};
+
+export default async function BillingPage({ searchParams }: BillingPageProps) {
+  const checkout = getSingleSearchParam(searchParams, "checkout");
 
   const supabase = await createClient();
   const {
