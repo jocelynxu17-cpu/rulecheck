@@ -4,7 +4,6 @@ import { Badge } from "@/components/ui/badge";
 import { CheckoutButton } from "@/components/billing/CheckoutButton";
 import { PortalButton } from "@/components/billing/PortalButton";
 
-/** Next.js App Router：searchParams 值可能是字串或字串陣列（重複 query key）。 */
 function getSingleSearchParam(
   searchParams: Record<string, string | string[] | undefined>,
   key: string
@@ -15,11 +14,12 @@ function getSingleSearchParam(
 }
 
 type BillingPageProps = {
-  searchParams: Record<string, string | string[] | undefined>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 export default async function BillingPage({ searchParams }: BillingPageProps) {
-  const checkout = getSingleSearchParam(searchParams, "checkout");
+  const resolvedSearchParams = (await searchParams) ?? {};
+  const checkout = getSingleSearchParam(resolvedSearchParams, "checkout");
 
   const supabase = await createClient();
   const {
