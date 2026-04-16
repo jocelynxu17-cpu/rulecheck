@@ -1,5 +1,6 @@
 import type {
   AnalysisFinding,
+  AnalysisMeta,
   AnalysisResult,
   AnalysisRewrites,
   RiskCategory,
@@ -38,8 +39,9 @@ export function normalizeFinding(raw: unknown, fullText: string): AnalysisFindin
   const severity = (["high", "medium", "low"].includes(String(f.severity)) ? f.severity : "low") as RiskSeverity;
 
   const legalReference = String(f.legalReference ?? "");
-  const lawName = String(f.lawName ?? "").trim() || inferLawFromLegacy(legalReference).lawName;
-  const article = String(f.article ?? "").trim() || inferLawFromLegacy(legalReference).article;
+  const inferredLaw = inferLawFromLegacy(legalReference);
+  const lawName = String(f.lawName ?? "").trim() || inferredLaw.lawName;
+  const article = String(f.article ?? "").trim() || inferredLaw.article;
   const reason =
     String(f.reason ?? "").trim() ||
     (riskType ? `與「${riskType}」相關之表述可能引發合規疑慮。` : "此表述可能涉及合規疑慮，建議由法遵覆核。");
@@ -48,6 +50,7 @@ export function normalizeFinding(raw: unknown, fullText: string): AnalysisFindin
 
   let rewrites: AnalysisRewrites | null = null;
   const rwObj = f.rewrites as Record<string, unknown> | undefined;
+
   if (rwObj && typeof rwObj === "object") {
     rewrites = {
       conservative: String(rwObj.conservative ?? ""),
@@ -55,6 +58,7 @@ export function normalizeFinding(raw: unknown, fullText: string): AnalysisFindin
       ecommerce: String(rwObj.ecommerce ?? rwObj.ecommerce_concise ?? ""),
     };
   }
+
   if (!rewrites || !String(rewrites.conservative).trim()) {
     const legacy = Array.isArray(f.rewriteSuggestions)
       ? (f.rewriteSuggestions as unknown[]).map((x) => String(x))
@@ -89,15 +93,20 @@ export function normalizeAnalysisResult(raw: unknown, inputText: string): Analys
   const summary = String(r.summary ?? "");
   const scannedAt = String(r.scannedAt ?? new Date().toISOString());
   const metaRaw = (r.meta ?? {}) as Record<string, unknown>;
-  const meta = {
-    source: metaRaw.source === "openai" ? "openai" : "mock",
+
+  const normalizedSource: AnalysisMeta["source"] =
+    metaRaw.source === "openai" || metaRaw.source === "mock"
+      ? metaRaw.source
+      : "mock";
+
+  const meta: AnalysisMeta = {
+    source: normalizedSource,
     guest: Boolean(metaRaw.guest),
     quotaRemaining:
-      typeof metaRaw.quotaRemaining === "number" || metaRaw.quotaRemaining === null
-        ? (metaRaw.quotaRemaining as number | null)
-        : null,
+      typeof metaRaw.quotaRemaining === "number" ? metaRaw.quotaRemaining : null,
     plan: typeof metaRaw.plan === "string" ? metaRaw.plan : null,
   };
+
   return { findings, summary, scannedAt, meta };
 }
 
