@@ -103,7 +103,10 @@ export async function POST(request: Request) {
     if (event.type === "customer.subscription.deleted") {
       const sub = event.data.object as Stripe.Subscription;
       const userId = await resolveUserIdForSubscriptionSync(admin, sub);
-      await applySubscriptionDeletedToUser({ userId, stripeSubscriptionId: sub.id });
+      await applySubscriptionDeletedToUser(admin, {
+        userId,
+        stripeSubscriptionId: sub.id,
+      });
     }
   } catch (e) {
     console.error("stripe webhook handler:", e);
