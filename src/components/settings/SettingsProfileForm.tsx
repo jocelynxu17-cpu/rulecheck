@@ -53,7 +53,7 @@ export function SettingsProfileForm({
           className="mt-2"
         />
       </div>
-      {msg ? <p className="text-sm text-brand-strong">{msg}</p> : null}
+      {msg ? <p className="text-sm font-medium text-ink">{msg}</p> : null}
       <Button type="submit" disabled={loading}>
         {loading ? "儲存中…" : "儲存變更"}
       </Button>

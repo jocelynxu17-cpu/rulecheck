@@ -43,12 +43,12 @@ export function SignupForm() {
   }
 
   return (
-    <Card className="border-surface-border/90 shadow-soft">
+    <Card className="border-surface-border">
       <CardHeader>
         <CardTitle className="text-2xl">建立帳號</CardTitle>
         <CardDescription>
           已有帳號？{" "}
-          <Link href="/login" className="font-semibold text-brand-strong hover:underline">
+          <Link href="/login" className="font-medium text-ink underline-offset-4 hover:underline">
             登入
           </Link>
         </CardDescription>

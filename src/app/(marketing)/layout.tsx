@@ -3,7 +3,7 @@ import { MarketingFooter } from "@/components/marketing/MarketingFooter";
 
 export default function MarketingLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-page-gradient">
+    <div className="min-h-screen bg-canvas">
       <MarketingNav />
       <div className="mx-auto max-w-6xl">{children}</div>
       <MarketingFooter />

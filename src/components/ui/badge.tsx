@@ -4,11 +4,11 @@ import type { RiskCategory, RiskSeverity } from "@/types/analysis";
 type Tone = "neutral" | "blue" | "amber" | "red" | "emerald";
 
 const tones: Record<Tone, string> = {
-  neutral: "bg-surface border-surface-border text-ink-secondary",
-  blue: "bg-brand/10 border-brand/20 text-brand-strong",
-  amber: "bg-amber-50 border-amber-100 text-amber-900",
-  red: "bg-red-50 border-red-100 text-red-800",
-  emerald: "bg-emerald-50 border-emerald-100 text-emerald-900",
+  neutral: "border-zinc-200/90 bg-zinc-50 text-zinc-700",
+  blue: "border-zinc-200 bg-zinc-100/80 text-zinc-800",
+  amber: "border-amber-200/90 bg-amber-50 text-amber-900",
+  red: "border-red-200/90 bg-red-50 text-red-900",
+  emerald: "border-emerald-200/90 bg-emerald-50 text-emerald-900",
 };
 
 export function Badge({
@@ -18,7 +18,7 @@ export function Badge({
 }: HTMLAttributes<HTMLSpanElement> & { tone?: Tone }) {
   return (
     <span
-      className={`inline-flex items-center rounded-lg border px-2.5 py-0.5 text-xs font-medium ${tones[tone]} ${className}`}
+      className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium tracking-wide ${tones[tone]} ${className}`}
       {...props}
     />
   );

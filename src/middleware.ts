@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import type { SupabaseCookieToSet } from "@/lib/supabase/cookie-types";
 
-const protectedPrefixes = ["/dashboard", "/history", "/billing", "/settings", "/admin"];
+const protectedPrefixes = ["/dashboard", "/history", "/billing", "/settings", "/admin", "/team"];
 
 function isProtectedPath(pathname: string) {
   return protectedPrefixes.some((p) => pathname === p || pathname.startsWith(`${p}/`));

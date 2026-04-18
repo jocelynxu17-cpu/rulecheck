@@ -10,6 +10,54 @@ export type SubscriptionUserRowPatch = {
   stripe_customer_id?: string | null;
 };
 
+/** 與 public.workspaces 對齊的帳務欄位（工作區 SSOT）。 */
+export type WorkspaceBillingStripePatch = {
+  plan?: string;
+  subscription_status?: string | null;
+  billing_provider?: string | null;
+  monthly_quota_units?: number;
+  cancel_at_period_end?: boolean;
+  current_period_end?: string | null;
+};
+
+export function buildWorkspaceBillingPatchFromStripe(
+  sub: Stripe.Subscription,
+  userPatch: SubscriptionUserRowPatch
+): WorkspaceBillingStripePatch {
+  const periodEnd =
+    typeof sub.current_period_end === "number"
+      ? new Date(sub.current_period_end * 1000).toISOString()
+      : null;
+  const out: WorkspaceBillingStripePatch = {
+    billing_provider: "stripe",
+    cancel_at_period_end: sub.cancel_at_period_end ?? false,
+    current_period_end: periodEnd,
+  };
+  if (userPatch.plan !== undefined) out.plan = userPatch.plan;
+  if (userPatch.subscription_status !== undefined) out.subscription_status = userPatch.subscription_status;
+  if (userPatch.monthly_analysis_quota !== undefined) out.monthly_quota_units = userPatch.monthly_analysis_quota;
+  return out;
+}
+
+export function buildWorkspaceBillingPatchForDeleted(): WorkspaceBillingStripePatch {
+  return {
+    plan: "free",
+    subscription_status: "canceled",
+    monthly_quota_units: 30,
+    billing_provider: null,
+    cancel_at_period_end: false,
+    current_period_end: null,
+  };
+}
+
+export function buildWorkspaceBillingPatchFromUserPatch(userPatch: SubscriptionUserRowPatch): WorkspaceBillingStripePatch {
+  const out: WorkspaceBillingStripePatch = { billing_provider: "stripe" };
+  if (userPatch.plan !== undefined) out.plan = userPatch.plan;
+  if (userPatch.subscription_status !== undefined) out.subscription_status = userPatch.subscription_status;
+  if (userPatch.monthly_analysis_quota !== undefined) out.monthly_quota_units = userPatch.monthly_analysis_quota;
+  return out;
+}
+
 export function stripeCustomerId(customer: Stripe.Subscription["customer"]): string | null {
   if (typeof customer === "string") return customer;
   if (customer && typeof customer === "object" && "id" in customer) return String(customer.id);
@@ -151,6 +199,12 @@ export async function applySubscriptionSyncToUser(
   const patch = buildUserPatchFromStripeSubscription(sub);
   const { error } = await admin.from("users").update(patch).eq("id", userId);
   if (error) return { ok: false, error: error.message };
+
+  const wsPatch = buildWorkspaceBillingPatchFromStripe(sub, patch);
+  const { error: wsError } = await admin.from("workspaces").update(wsPatch).eq("created_by", userId);
+  if (wsError) {
+    console.error("applySubscriptionSyncToUser: workspace billing sync", wsError.message);
+  }
   return { ok: true };
 }
 
@@ -159,11 +213,20 @@ export async function applySubscriptionDeletedToUser(
   opts: { userId?: string | null; stripeSubscriptionId?: string | null }
 ): Promise<void> {
   const patch = buildUserPatchForSubscriptionDeleted();
+  const wsPatch = buildWorkspaceBillingPatchForDeleted();
   if (opts.userId) {
     await admin.from("users").update(patch).eq("id", opts.userId);
+    const { error: wsError } = await admin.from("workspaces").update(wsPatch).eq("created_by", opts.userId);
+    if (wsError) console.error("applySubscriptionDeletedToUser: workspace billing sync", wsError.message);
     return;
   }
   if (opts.stripeSubscriptionId) {
+    const { data: rows } = await admin.from("users").select("id").eq("stripe_subscription_id", opts.stripeSubscriptionId);
     await admin.from("users").update(patch).eq("stripe_subscription_id", opts.stripeSubscriptionId);
+    const ids = (rows ?? []).map((r: { id: string }) => r.id);
+    for (const uid of ids) {
+      const { error: wsError } = await admin.from("workspaces").update(wsPatch).eq("created_by", uid);
+      if (wsError) console.error("applySubscriptionDeletedToUser: workspace billing sync", wsError.message);
+    }
   }
 }

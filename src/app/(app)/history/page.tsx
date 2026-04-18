@@ -7,27 +7,35 @@ import { analysisStatusLabel, categorySummary, normalizeAnalysisResult } from "@
 
 export default async function HistoryPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   const { data: rows } = await supabase
     .from("analysis_logs")
-    .select("id, created_at, input_text, result")
-    .eq("user_id", user!.id)
+    .select(
+      `
+      id,
+      created_at,
+      input_text,
+      result,
+      workspace_id,
+      workspaces ( name )
+    `
+    )
     .order("created_at", { ascending: false })
     .limit(50);
 
   return (
-    <div className="mx-auto max-w-5xl space-y-8">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight text-ink">分析紀錄</h1>
-          <p className="mt-2 text-sm text-ink-secondary">快速掌握狀態、分類摘要與建立時間，點進可重新檢視完整結果。</p>
+    <div className="mx-auto max-w-4xl space-y-10">
+      <div className="flex flex-wrap items-end justify-between gap-6">
+        <div className="max-w-xl space-y-3">
+          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-secondary">紀錄</p>
+          <h1 className="text-2xl font-medium tracking-tight text-ink sm:text-[1.625rem]">分析紀錄</h1>
+          <p className="text-[15px] leading-relaxed text-ink-secondary">
+            成員可檢視同一工作區的檢測紀錄（依權限）。點進可檢視完整結果。
+          </p>
         </div>
         <Link
           href="/analyze"
-          className="inline-flex h-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#B8D9FF] via-brand to-brand-strong px-5 text-sm font-semibold text-white shadow-soft transition hover:brightness-[1.03]"
+          className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-brand-strong px-5 text-sm font-medium text-white transition hover:bg-brand-strong/90"
         >
           新增檢測
         </Link>
@@ -36,11 +44,11 @@ export default async function HistoryPage() {
       {!rows?.length ? (
         <EmptyState
           title="尚無紀錄"
-          description="完成第一次文案檢測後，結果會自動出現在這裡。"
+          description="完成第一次檢測後，結果會自動出現在這裡。"
           action={
             <Link
               href="/analyze"
-              className="inline-flex h-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#B8D9FF] via-brand to-brand-strong px-6 text-sm font-semibold text-white shadow-soft"
+              className="inline-flex h-10 items-center justify-center rounded-lg bg-brand-strong px-6 text-sm font-medium text-white transition hover:bg-brand-strong/90"
             >
               前往檢測
             </Link>
@@ -54,14 +62,21 @@ export default async function HistoryPage() {
             const status = analysisStatusLabel(norm.findings);
             const created = new Date(r.created_at).toLocaleString("zh-TW");
             const statusTone: "neutral" | "emerald" = status === "未偵測到提示" ? "neutral" : "emerald";
+            const ws = r.workspaces as unknown as { name: string } | null;
+            const wsName = ws?.name ?? null;
 
             return (
-              <Card key={r.id} className="p-0 transition hover:border-brand/35 hover:shadow-card">
+              <Card key={r.id} className="p-0 transition hover:border-zinc-300/80">
                 <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0 flex-1 space-y-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge tone={statusTone}>{status}</Badge>
                       <Badge tone="blue">分類：{cats}</Badge>
+                      {wsName ? (
+                        <span className="rounded-md border border-surface-border bg-canvas px-2 py-0.5 text-[11px] font-medium text-ink-secondary">
+                          {wsName}
+                        </span>
+                      ) : null}
                       <span className="text-xs text-ink-secondary">{created}</span>
                     </div>
                     <p className="line-clamp-2 text-sm font-medium leading-relaxed text-ink">
@@ -71,7 +86,7 @@ export default async function HistoryPage() {
                   <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
                     <Link
                       href={`/history/${r.id}`}
-                      className="inline-flex h-10 items-center justify-center rounded-xl border border-surface-border bg-white px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-brand/40"
+                      className="inline-flex h-9 items-center justify-center rounded-lg border border-surface-border bg-white px-4 text-sm font-medium text-ink transition hover:bg-zinc-50"
                     >
                       開啟分析
                     </Link>

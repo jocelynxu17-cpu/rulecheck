@@ -105,9 +105,22 @@ export function normalizeAnalysisResult(raw: unknown, inputText: string): Analys
     quotaRemaining:
       typeof metaRaw.quotaRemaining === "number" ? metaRaw.quotaRemaining : null,
     plan: typeof metaRaw.plan === "string" ? metaRaw.plan : null,
+    workspaceId: typeof metaRaw.workspaceId === "string" ? metaRaw.workspaceId : undefined,
+    workspaceName: typeof metaRaw.workspaceName === "string" ? metaRaw.workspaceName : undefined,
+    inputKind:
+      metaRaw.inputKind === "text" || metaRaw.inputKind === "image" || metaRaw.inputKind === "pdf"
+        ? metaRaw.inputKind
+        : undefined,
+    unitsCharged: typeof metaRaw.unitsCharged === "number" ? metaRaw.unitsCharged : undefined,
+    ocrConfidence:
+      typeof metaRaw.ocrConfidence === "number" || metaRaw.ocrConfidence === null
+        ? (metaRaw.ocrConfidence as number | null)
+        : undefined,
   };
 
-  return { findings, summary, scannedAt, meta };
+  const pdfRaw = r.pdfReport as AnalysisResult["pdfReport"] | undefined;
+
+  return { findings, summary, scannedAt, meta, pdfReport: pdfRaw };
 }
 
 export function categorySummary(findings: AnalysisFinding[]): string {

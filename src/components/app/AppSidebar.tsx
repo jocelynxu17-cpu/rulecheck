@@ -5,8 +5,9 @@ import { usePathname } from "next/navigation";
 
 const items = [
   { href: "/dashboard", label: "總覽", icon: MHome },
-  { href: "/analyze", label: "文案檢測", icon: MScan },
+  { href: "/analyze", label: "合規檢測", icon: MScan },
   { href: "/history", label: "分析紀錄", icon: MHistory },
+  { href: "/team", label: "成員", icon: MUsers },
   { href: "/billing", label: "帳務方案", icon: MBill },
   { href: "/settings", label: "設定", icon: MSettings },
   { href: "/admin", label: "管理後台", icon: MShield },
@@ -16,30 +17,30 @@ export function AppSidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="hidden w-64 shrink-0 border-r border-surface-border bg-white/80 lg:block">
-      <div className="flex h-16 items-center gap-2 border-b border-surface-border px-5">
-        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#B8D9FF] to-brand shadow-soft">
-          <span className="text-sm font-bold text-white">R</span>
+    <aside className="hidden w-[220px] shrink-0 border-r border-surface-border bg-canvas lg:block">
+      <div className="flex h-14 items-center gap-3 border-b border-surface-border/80 px-4">
+        <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-surface-border bg-white text-xs font-semibold tracking-tight text-ink">
+          R
         </span>
-        <div className="leading-tight">
-          <p className="text-sm font-semibold text-ink">RuleCheck</p>
-          <p className="text-xs text-ink-secondary">Compliance</p>
+        <div className="min-w-0 leading-tight">
+          <p className="truncate text-sm font-medium text-ink">RuleCheck</p>
+          <p className="text-[11px] text-ink-secondary">Compliance</p>
         </div>
       </div>
-      <nav className="space-y-1 p-3">
+      <nav className="space-y-0.5 p-2">
         {items.map((item) => {
           const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+              className={`flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-medium transition ${
                 active
-                  ? "bg-brand/10 text-brand-strong shadow-sm"
-                  : "text-ink-secondary hover:bg-surface hover:text-ink"
+                  ? "bg-white text-ink shadow-none ring-1 ring-surface-border"
+                  : "text-ink-secondary hover:bg-white/60 hover:text-ink"
               }`}
             >
-              <item.icon className="h-5 w-5 opacity-80" />
+              <item.icon className="h-[18px] w-[18px] shrink-0 opacity-70" />
               {item.label}
             </Link>
           );
@@ -52,7 +53,22 @@ export function AppSidebar() {
 function MHome({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75" />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75"
+      />
+    </svg>
+  );
+}
+function MUsers({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"
+      />
     </svg>
   );
 }
@@ -73,7 +89,11 @@ function MHistory({ className }: { className?: string }) {
 function MBill({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 8.25h19.5M2.25 15.75h19.5M3 4.5h18a1.5 1.5 0 011.5 1.5v12a1.5 1.5 0 01-1.5 1.5H3A1.5 1.5 0 011.5 18V6A1.5 1.5 0 013 4.5z" />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M2.25 8.25h19.5M2.25 15.75h19.5M3 4.5h18a1.5 1.5 0 011.5 1.5v12a1.5 1.5 0 01-1.5 1.5H3A1.5 1.5 0 011.5 18V6A1.5 1.5 0 013 4.5z"
+      />
     </svg>
   );
 }
@@ -92,7 +112,11 @@ function MSettings({ className }: { className?: string }) {
 function MShield({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"
+      />
     </svg>
   );
 }

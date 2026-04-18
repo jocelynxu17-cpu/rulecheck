@@ -3,11 +3,11 @@
 @tailwind utilities;
 
 :root {
-  --color-primary: #4f8cff;
-  --color-bg-soft: #f5f9ff;
-  --color-border: #e6eef8;
-  --color-ink: #1a1a1a;
-  --color-ink-secondary: #6b7280;
+  --color-primary: #18181b;
+  --color-bg-soft: #fafaf9;
+  --color-border: #e7e5e4;
+  --color-ink: #171717;
+  --color-ink-secondary: #737373;
 }
 
 html {
@@ -15,7 +15,7 @@ html {
 }
 
 body {
-  @apply min-h-screen antialiased bg-page-gradient text-ink;
+  @apply min-h-screen antialiased bg-canvas text-ink;
 }
 
 @layer utilities {

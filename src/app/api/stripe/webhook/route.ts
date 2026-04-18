@@ -7,6 +7,7 @@ import {
   applySubscriptionDeletedToUser,
   applySubscriptionSyncToUser,
   buildUserPatchCheckoutFallback,
+  buildWorkspaceBillingPatchFromUserPatch,
   resolveUserIdForInvoicePaid,
   resolveUserIdForSubscriptionSync,
   stripeSubscriptionIdFromExpandable,
@@ -61,6 +62,9 @@ export async function POST(request: Request) {
             stripe_subscription_id: subscriptionId,
           });
           await admin.from("users").update(patch).eq("id", userId);
+          const wsPatch = buildWorkspaceBillingPatchFromUserPatch(patch);
+          const { error: wsErr } = await admin.from("workspaces").update(wsPatch).eq("created_by", userId);
+          if (wsErr) console.error("checkout fallback workspace sync:", wsErr.message);
         }
       }
     }

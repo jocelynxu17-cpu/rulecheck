@@ -30,11 +30,28 @@ export type AnalysisFinding = {
   rewrites: AnalysisRewrites;
 };
 
+export type AnalysisInputKind = "text" | "image" | "pdf";
+
+export type PdfPageText = { pageNumber: number; text: string };
+
+export type PdfPageAnalysis = {
+  pageNumber: number;
+  text: string;
+  findings: AnalysisFinding[];
+  summary: string;
+  hasRisk: boolean;
+};
+
 export type AnalysisMeta = {
   source: "openai" | "mock";
   guest: boolean;
   quotaRemaining: number | null;
   plan?: string | null;
+  workspaceId?: string | null;
+  workspaceName?: string | null;
+  inputKind?: AnalysisInputKind;
+  unitsCharged?: number;
+  ocrConfidence?: number | null;
 };
 
 export type AnalysisResult = {
@@ -42,4 +59,10 @@ export type AnalysisResult = {
   summary: string;
   scannedAt: string;
   meta: AnalysisMeta;
+  /** PDF：分頁結果與風險頁碼 */
+  pdfReport?: {
+    pageCount: number;
+    pages: PdfPageAnalysis[];
+    riskyPageNumbers: number[];
+  };
 };

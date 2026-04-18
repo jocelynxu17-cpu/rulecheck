@@ -1,7 +1,7 @@
 export function Skeleton({ className = "" }: { className?: string }) {
   return (
     <div
-      className={`animate-pulse rounded-xl bg-gradient-to-r from-surface-border/60 via-brand/5 to-surface-border/60 ${className}`}
+      className={`animate-pulse rounded-lg bg-gradient-to-r from-zinc-200/50 via-zinc-100/80 to-zinc-200/50 ${className}`}
     />
   );
 }

@@ -16,7 +16,7 @@ const tiers: Tier[] = [
   {
     name: "Free",
     price: "NT$0",
-    desc: "適合新創團隊試用與教育訓練。",
+    desc: "適合品牌、工作室試用與教育訓練。",
     features: ["每月 30 次檢測", "紀錄留存 90 天（示意）", "Email 支援"],
     cta: { href: "/signup", label: "開始使用" },
     highlight: false,
@@ -42,21 +42,21 @@ const tiers: Tier[] = [
 
 export default function PricingPage() {
   return (
-    <div className="px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
+    <div className="px-5 py-16 sm:px-8 lg:px-10 lg:py-24">
       <div className="mx-auto max-w-2xl text-center">
         <Badge tone="blue">Pricing</Badge>
-        <h1 className="mt-4 text-4xl font-semibold tracking-tight text-ink">簡單透明的方案</h1>
-        <p className="mt-4 text-pretty text-lg text-ink-secondary">
-          以訂閱制解鎖更高配額與團隊協作能力。Stripe 結帳已預先串接，部署後填入 Price ID 即可啟用。
+        <h1 className="mt-4 text-3xl font-medium tracking-tight text-ink sm:text-4xl">簡單透明的方案</h1>
+        <p className="mt-4 text-pretty text-[15px] leading-relaxed text-ink-secondary sm:text-base">
+          以訂閱制解鎖更高配額與多帳號共用。台灣在地金流與週期帳務即將開放，上線後即可於帳務頁完成升級與管理。
         </p>
       </div>
 
-      <div className="mx-auto mt-14 grid max-w-6xl gap-6 lg:grid-cols-3">
+      <div className="mx-auto mt-14 grid max-w-6xl gap-5 lg:grid-cols-3">
         {tiers.map((t) => (
           <Card
             key={t.name}
             className={`relative overflow-hidden p-0 ${
-              t.highlight ? "border-brand/40 shadow-soft ring-1 ring-brand/15" : "bg-white/90"
+              t.highlight ? "border-surface-border ring-1 ring-black/[0.06]" : "border-surface-border bg-white"
             }`}
           >
             {t.highlight ? (
@@ -65,10 +65,10 @@ export default function PricingPage() {
               </div>
             ) : null}
             <CardHeader className="p-8 pb-4">
-              <CardTitle className="text-xl">{t.name}</CardTitle>
+              <CardTitle className="text-lg font-medium">{t.name}</CardTitle>
               <CardDescription>{t.desc}</CardDescription>
               <div className="mt-6 flex items-baseline gap-1">
-                <span className="text-4xl font-semibold tracking-tight text-ink">{t.price}</span>
+                <span className="text-4xl font-medium tracking-tight text-ink">{t.price}</span>
                 {t.period ? <span className="text-sm text-ink-secondary">{t.period}</span> : null}
               </div>
             </CardHeader>
@@ -76,7 +76,7 @@ export default function PricingPage() {
               <ul className="space-y-3 text-sm text-ink-secondary">
                 {t.features.map((f) => (
                   <li key={f} className="flex gap-2">
-                    <span className="mt-0.5 inline-block h-2 w-2 rounded-full bg-brand/70" />
+                    <span className="mt-1.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-400" />
                     <span>{f}</span>
                   </li>
                 ))}
@@ -84,17 +84,17 @@ export default function PricingPage() {
               {t.cta.external ? (
                 <a
                   href={t.cta.href}
-                  className="mt-4 inline-flex h-11 w-full items-center justify-center rounded-xl border border-surface-border bg-white text-sm font-semibold text-ink shadow-sm transition hover:border-brand/40"
+                  className="mt-4 inline-flex h-10 w-full items-center justify-center rounded-lg border border-surface-border bg-white text-sm font-medium text-ink transition hover:bg-zinc-50"
                 >
                   {t.cta.label}
                 </a>
               ) : (
                 <Link
                   href={t.cta.href}
-                  className={`mt-4 inline-flex h-11 w-full items-center justify-center rounded-xl text-sm font-semibold transition ${
+                  className={`mt-4 inline-flex h-10 w-full items-center justify-center rounded-lg text-sm font-medium transition ${
                     t.highlight
-                      ? "bg-gradient-to-br from-[#B8D9FF] via-brand to-brand-strong text-white shadow-soft hover:brightness-[1.03]"
-                      : "border border-surface-border bg-white text-ink shadow-sm hover:border-brand/40"
+                      ? "bg-brand-strong text-white hover:bg-brand-strong/90"
+                      : "border border-surface-border bg-white text-ink hover:bg-zinc-50"
                   }`}
                 >
                   {t.cta.label}

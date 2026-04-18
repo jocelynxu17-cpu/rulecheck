@@ -73,7 +73,7 @@ export function FindingPanel({
 
   return (
     <Card className="overflow-hidden border-surface-border/90">
-      <CardHeader className="space-y-4 border-b border-surface-border/80 bg-white/70 pb-6">
+      <CardHeader className="space-y-4 border-b border-surface-border bg-white pb-6">
         <div className="flex flex-wrap items-center gap-2">
           <CategoryBadge category={finding.category} />
           <SeverityBadge severity={finding.severity} />
@@ -89,7 +89,7 @@ export function FindingPanel({
           <div className="space-y-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-ink-secondary">法源與條號</p>
             <p className="text-base font-semibold tracking-tight text-ink">{finding.lawName}</p>
-            <p className="inline-flex w-fit rounded-full border border-brand/20 bg-brand/10 px-3 py-1 text-xs font-semibold text-brand-strong">
+            <p className="inline-flex w-fit rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-medium text-ink">
               {finding.article}
             </p>
           </div>
@@ -135,7 +135,7 @@ export function FindingPanel({
             {REWRITE_KEYS.map((key) => (
               <div
                 key={key}
-                className="flex h-full flex-col rounded-2xl border border-surface-border bg-white p-4 shadow-sm transition hover:border-brand/35"
+                className="flex h-full flex-col rounded-xl border border-surface-border bg-white p-4 transition hover:border-zinc-300/90"
               >
                 <div className="flex items-start justify-between gap-3">
                   <p className="text-sm font-semibold text-ink">{REWRITE_LABELS[key]}</p>

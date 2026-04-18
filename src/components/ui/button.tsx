@@ -4,10 +4,10 @@ type Variant = "primary" | "secondary" | "ghost";
 
 const variants: Record<Variant, string> = {
   primary:
-    "bg-gradient-to-br from-[#B8D9FF] via-brand to-brand-strong text-white shadow-soft hover:brightness-[1.03] active:scale-[0.99]",
+    "bg-brand-strong text-white shadow-none hover:bg-brand-strong/90 active:scale-[0.99]",
   secondary:
-    "border border-surface-border bg-white text-ink shadow-sm hover:border-brand/40 hover:shadow-card",
-  ghost: "text-ink-secondary hover:bg-brand/5 hover:text-ink",
+    "border border-surface-border bg-white text-ink shadow-none hover:bg-zinc-50 hover:border-zinc-300/80",
+  ghost: "text-ink-secondary hover:bg-zinc-100/80 hover:text-ink",
 };
 
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -20,16 +20,16 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   ref
 ) {
   const sizes = {
-    sm: "h-9 rounded-lg px-3 text-sm",
-    md: "h-11 rounded-xl px-4 text-sm font-medium",
-    lg: "h-12 rounded-xl px-6 text-base font-medium",
+    sm: "h-9 rounded-md px-3 text-sm",
+    md: "h-10 rounded-lg px-4 text-sm font-medium",
+    lg: "h-11 rounded-lg px-5 text-[15px] font-medium",
   }[size];
 
   return (
     <button
       ref={ref}
       type={type}
-      className={`inline-flex items-center justify-center gap-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 ${variants[variant]} ${sizes} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/40 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas disabled:pointer-events-none disabled:opacity-45 ${variants[variant]} ${sizes} ${className}`}
       {...props}
     />
   );

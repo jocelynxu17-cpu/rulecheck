@@ -13,29 +13,34 @@ const config: Config = {
         display: ["var(--font-inter)", "var(--font-noto)", "system-ui", "sans-serif"],
       },
       colors: {
+        /** Warm app canvas (behind white cards) */
+        canvas: {
+          DEFAULT: "#FAFAF9",
+          muted: "#F5F5F4",
+        },
+        /** Interactive / UI accent — neutral, not marketing blue */
         brand: {
-          DEFAULT: "#4F8CFF",
-          soft: "#E8F1FF",
-          strong: "#3B7AE8",
-          muted: "#7BA8FF",
+          DEFAULT: "#52525B",
+          soft: "#F4F4F5",
+          strong: "#18181B",
+          muted: "#A1A1AA",
         },
         surface: {
-          DEFAULT: "#F5F9FF",
+          DEFAULT: "#F5F5F4",
           card: "#FFFFFF",
-          border: "#E6EEF8",
+          border: "#E7E5E4",
         },
         ink: {
-          DEFAULT: "#1A1A1A",
-          secondary: "#6B7280",
+          DEFAULT: "#171717",
+          secondary: "#737373",
         },
       },
       boxShadow: {
-        card: "0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.06)",
-        soft: "0 12px 40px rgba(79, 140, 255, 0.12)",
+        card: "0 1px 0 rgba(0, 0, 0, 0.04)",
+        soft: "0 1px 2px rgba(0, 0, 0, 0.04)",
       },
       backgroundImage: {
-        "page-gradient": "linear-gradient(180deg, #F5F9FF 0%, #FFFFFF 42%, #F8FAFF 100%)",
-        "btn-primary": "linear-gradient(135deg, #9EC5FF 0%, #4F8CFF 48%, #3B7AE8 100%)",
+        "page-gradient": "linear-gradient(180deg, #FAFAF9 0%, #FAFAF9 100%)",
       },
     },
   },

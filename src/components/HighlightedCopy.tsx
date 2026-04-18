@@ -21,7 +21,7 @@ export function HighlightedCopy({ text, spans }: { text: string; spans: TextSpan
     nodes.push(
       <mark
         key={`h-${idx}`}
-        className="rounded-md bg-brand/20 px-0.5 font-medium text-ink ring-1 ring-brand/15"
+        className="rounded bg-amber-100/90 px-0.5 font-medium text-ink ring-1 ring-amber-200/70"
       >
         {text.slice(s.start, s.end)}
       </mark>

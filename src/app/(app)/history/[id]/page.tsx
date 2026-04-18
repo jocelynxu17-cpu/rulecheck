@@ -8,21 +8,14 @@ import { HighlightedCopy } from "@/components/HighlightedCopy";
 import { Badge } from "@/components/ui/badge";
 import { mergeIntervals } from "@/lib/text-spans";
 import { FindingPanel } from "@/components/analyze/FindingPanel";
+import { PdfReportSection } from "@/components/analyze/PdfReportSection";
 import { analysisStatusLabel, categorySummary } from "@/lib/analysis-normalize";
 
 export default async function HistoryDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
-  const { data: row } = await supabase
-    .from("analysis_logs")
-    .select("id, created_at, input_text, result")
-    .eq("id", id)
-    .eq("user_id", user!.id)
-    .maybeSingle();
+  const { data: row } = await supabase.from("analysis_logs").select("id, created_at, input_text, result").eq("id", id).maybeSingle();
 
   if (!row) notFound();
 
@@ -37,7 +30,7 @@ export default async function HistoryDetailPage({ params }: { params: Promise<{ 
     <div className="mx-auto max-w-5xl space-y-10 pb-16">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-2">
-          <Link href="/history" className="text-sm font-semibold text-brand-strong hover:underline">
+          <Link href="/history" className="text-sm font-medium text-ink underline-offset-4 hover:underline">
             ← 返回紀錄
           </Link>
           <div className="flex flex-wrap items-center gap-2">
@@ -50,33 +43,39 @@ export default async function HistoryDetailPage({ params }: { params: Promise<{ 
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>原文</CardTitle>
-          <CardDescription>儲存當下的輸入內容（長文可能已截斷）。</CardDescription>
-        </CardHeader>
-        <CardContent className="rounded-2xl border border-surface-border bg-surface p-5">
-          <HighlightedCopy text={row.input_text} spans={allSpans} />
-        </CardContent>
-      </Card>
+      {result.pdfReport ? (
+        <PdfReportSection report={result.pdfReport} aggregateSummary={result.summary} allowRegenerate />
+      ) : (
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle>原文</CardTitle>
+              <CardDescription>儲存當下的輸入內容（長文可能已截斷）。</CardDescription>
+            </CardHeader>
+            <CardContent className="rounded-2xl border border-surface-border bg-surface p-5">
+              <HighlightedCopy text={row.input_text} spans={allSpans} />
+            </CardContent>
+          </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>總覽摘要</CardTitle>
-          <CardDescription className="text-sm leading-relaxed text-ink-secondary">{result.summary}</CardDescription>
-        </CardHeader>
-      </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>總覽摘要</CardTitle>
+              <CardDescription className="text-sm leading-relaxed text-ink-secondary">{result.summary}</CardDescription>
+            </CardHeader>
+          </Card>
 
-      <div className="space-y-5">
-        <h2 className="text-xl font-semibold tracking-tight text-ink">發現項目</h2>
-        <div className="space-y-6">
-          {result.findings.map((f, idx) => (
-            <FindingPanel key={`${f.riskyPhrase}-${idx}`} finding={f} fullText={row.input_text} allowRegenerate />
-          ))}
-        </div>
-      </div>
+          <div className="space-y-5">
+            <h2 className="text-xl font-semibold tracking-tight text-ink">發現項目</h2>
+            <div className="space-y-6">
+              {result.findings.map((f, idx) => (
+                <FindingPanel key={`${f.riskyPhrase}-${idx}`} finding={f} fullText={row.input_text} allowRegenerate />
+              ))}
+            </div>
+          </div>
+        </>
+      )}
 
-      <details className="group rounded-2xl border border-surface-border bg-white/70 p-5 shadow-sm">
+      <details className="group rounded-xl border border-surface-border bg-white p-5">
         <summary className="cursor-pointer list-none text-sm font-semibold text-ink outline-none [&::-webkit-details-marker]:hidden">
           <span className="inline-flex items-center gap-2">
             檢視 JSON
