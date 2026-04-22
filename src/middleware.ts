@@ -1,19 +1,38 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import type { SupabaseCookieToSet } from "@/lib/supabase/cookie-types";
+import { canAccessInternalOps } from "@/lib/admin/internal-ops-access";
 
-const protectedPrefixes = ["/dashboard", "/history", "/billing", "/settings", "/admin", "/team"];
+const protectedPrefixes = [
+  "/history",
+  "/billing",
+  "/settings",
+  "/members",
+  "/api-settings",
+  "/internal",
+  "/team/join",
+];
 
 function isProtectedPath(pathname: string) {
-  return protectedPrefixes.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+  if (protectedPrefixes.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
+    return true;
+  }
+  if (pathname === "/team/members" || pathname.startsWith("/team/members/")) return true;
+  return false;
 }
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
 
+  const { pathname } = request.nextUrl;
+
+  if (pathname === "/admin" || pathname.startsWith("/admin/")) {
+    const suffix = pathname === "/admin" ? "" : pathname.slice("/admin".length);
+    return NextResponse.redirect(new URL(`/internal${suffix}`, request.url));
+  }
+
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const { pathname } = request.nextUrl;
 
   if (!url || !key) {
     if (isProtectedPath(pathname)) {
@@ -51,12 +70,20 @@ export async function middleware(request: NextRequest) {
     return redirect;
   }
 
+  if (user && (pathname === "/internal" || pathname.startsWith("/internal/"))) {
+    if (!canAccessInternalOps(user.email)) {
+      const deny = NextResponse.redirect(new URL("/analyze", request.url));
+      response.cookies.getAll().forEach((c) => deny.cookies.set(c.name, c.value));
+      return deny;
+    }
+  }
+
   if ((pathname === "/login" || pathname === "/signup") && user) {
-    const dash = NextResponse.redirect(new URL("/dashboard", request.url));
+    const postLogin = NextResponse.redirect(new URL("/auth/post-login", request.url));
     response.cookies.getAll().forEach((c) => {
-      dash.cookies.set(c.name, c.value);
+      postLogin.cookies.set(c.name, c.value);
     });
-    return dash;
+    return postLogin;
   }
 
   return response;

@@ -25,7 +25,7 @@ export type PaymentEventRow = {
   subscription_id: string | null;
   provider: string;
   event_type: string;
-  idempotency_key: string | null;
+  idempotency_key: string;
   payload: Record<string, unknown>;
   created_at: string;
 };
@@ -41,6 +41,18 @@ export type UserBillingSnapshot = {
 
 /** Same shape as user billing snapshot; persisted on `workspaces` as SSOT for team billing UI. */
 export type WorkspaceBillingSnapshot = UserBillingSnapshot;
+
+/**
+ * 產品 UI 讀取之工作區帳務快照（僅來自 `workspaces` 主列，見 getPrimaryWorkspaceBillingUiSnapshot）。
+ * 延伸 {@link UserBillingSnapshot} 之欄位可直接傳入 deriveBillingUiState。
+ */
+export type WorkspaceBillingUiSnapshot = UserBillingSnapshot & {
+  workspaceId: string;
+  workspaceName: string;
+  monthly_quota_units: number;
+  units_used_month: number;
+  usage_month: string;
+};
 
 export type BillingCheckoutResponse = {
   ok: boolean;

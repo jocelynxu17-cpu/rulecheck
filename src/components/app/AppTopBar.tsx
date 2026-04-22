@@ -2,15 +2,27 @@ import Link from "next/link";
 import { SignOutButton } from "@/components/SignOutButton";
 import { WorkspaceSwitcher } from "@/components/workspace/WorkspaceSwitcher";
 
-const mobileLinks = [
-  { href: "/dashboard", label: "總覽" },
+const mobileLinksConsumer = [
   { href: "/analyze", label: "檢測" },
   { href: "/history", label: "紀錄" },
-  { href: "/team", label: "成員" },
+  { href: "/members", label: "成員" },
   { href: "/billing", label: "帳務" },
+  { href: "/api-settings", label: "API" },
+  { href: "/settings", label: "設定" },
 ];
 
-export function AppTopBar({ email }: { email?: string | null }) {
+export function AppTopBar({
+  email,
+  showInternalEntry = false,
+}: {
+  email?: string | null;
+  /** 僅具內部營運權限者顯示 */
+  showInternalEntry?: boolean;
+}) {
+  const mobileLinks = showInternalEntry
+    ? [...mobileLinksConsumer, { href: "/internal", label: "營運" }]
+    : mobileLinksConsumer;
+
   return (
     <header className="flex h-14 flex-col border-b border-surface-border bg-canvas/90 backdrop-blur-md lg:flex-row lg:items-center lg:justify-between lg:px-6">
       <div className="flex h-14 items-center justify-between px-4 lg:contents lg:h-auto lg:px-0">

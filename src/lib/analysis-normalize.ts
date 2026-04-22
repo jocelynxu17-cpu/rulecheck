@@ -107,6 +107,24 @@ export function normalizeAnalysisResult(raw: unknown, inputText: string): Analys
     plan: typeof metaRaw.plan === "string" ? metaRaw.plan : null,
     workspaceId: typeof metaRaw.workspaceId === "string" ? metaRaw.workspaceId : undefined,
     workspaceName: typeof metaRaw.workspaceName === "string" ? metaRaw.workspaceName : undefined,
+    workspaceMonthlyQuotaUnits:
+      typeof metaRaw.workspaceMonthlyQuotaUnits === "number"
+        ? metaRaw.workspaceMonthlyQuotaUnits
+        : metaRaw.workspaceMonthlyQuotaUnits === null
+          ? null
+          : undefined,
+    workspaceSubscriptionStatus:
+      typeof metaRaw.workspaceSubscriptionStatus === "string"
+        ? metaRaw.workspaceSubscriptionStatus
+        : metaRaw.workspaceSubscriptionStatus === null
+          ? null
+          : undefined,
+    workspaceBillingProvider:
+      typeof metaRaw.workspaceBillingProvider === "string"
+        ? metaRaw.workspaceBillingProvider
+        : metaRaw.workspaceBillingProvider === null
+          ? null
+          : undefined,
     inputKind:
       metaRaw.inputKind === "text" || metaRaw.inputKind === "image" || metaRaw.inputKind === "pdf"
         ? metaRaw.inputKind

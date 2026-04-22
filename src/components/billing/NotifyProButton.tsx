@@ -11,7 +11,14 @@ export function NotifyProButton({ disabled }: { disabled?: boolean }) {
     setLoading(true);
     const t = toast.loading("送出中…");
     try {
-      const res = await fetch("/api/billing/checkout", { method: "POST" });
+      await fetch("/api/billing/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ kind: "pro_interest" }),
+      });
+
+      const res = await fetch("/api/billing/checkout", { method: "POST", credentials: "same-origin" });
       const data = (await res.json()) as {
         message?: string;
         error?: string;

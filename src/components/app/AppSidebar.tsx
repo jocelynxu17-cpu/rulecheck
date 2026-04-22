@@ -3,18 +3,32 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const items = [
+const consumerItems = [
+  { href: "/analyze", label: "檢測", icon: MScan },
+  { href: "/history", label: "紀錄", icon: MHistory },
+  { href: "/members", label: "成員", icon: MUsers },
+  { href: "/billing", label: "帳務", icon: MBill },
+  { href: "/api-settings", label: "API", icon: MApi },
+  { href: "/settings", label: "設定", icon: MSettings },
+];
+
+const legacyItems = [
   { href: "/dashboard", label: "總覽", icon: MHome },
   { href: "/analyze", label: "合規檢測", icon: MScan },
   { href: "/history", label: "分析紀錄", icon: MHistory },
   { href: "/team", label: "成員", icon: MUsers },
   { href: "/billing", label: "帳務方案", icon: MBill },
   { href: "/settings", label: "設定", icon: MSettings },
-  { href: "/admin", label: "管理後台", icon: MShield },
 ];
 
-export function AppSidebar() {
+export function AppSidebar({ mode = "consumer" }: { mode?: "consumer" | "legacy-admin" | "legacy" }) {
   const pathname = usePathname();
+  const items =
+    mode === "consumer"
+      ? consumerItems
+      : mode === "legacy-admin"
+        ? [...legacyItems, { href: "/internal", label: "內部營運", icon: MShield }]
+        : legacyItems;
 
   return (
     <aside className="hidden w-[220px] shrink-0 border-r border-surface-border bg-canvas lg:block">
@@ -97,6 +111,18 @@ function MBill({ className }: { className?: string }) {
     </svg>
   );
 }
+function MApi({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M17.25 6.75L22 12l-4.75 5.25M6.75 17.25L2 12l4.75-5.25M14.25 12a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"
+      />
+    </svg>
+  );
+}
+
 function MSettings({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>

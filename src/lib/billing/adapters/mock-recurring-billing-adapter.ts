@@ -24,10 +24,12 @@ export class MockRecurringBillingAdapter implements RecurringBillingPort {
   private recordProInterest(userId: string) {
     try {
       const admin = createAdminClient();
+      const ymd = new Date().toISOString().slice(0, 10);
       void admin.from("payment_events").insert({
         user_id: userId,
-        provider: "none",
+        provider: "mock",
         event_type: "pro_interest",
+        idempotency_key: `mock:recurring:${userId}:${ymd}`,
         payload: { source: "mock_recurring_billing_adapter" },
       });
     } catch {

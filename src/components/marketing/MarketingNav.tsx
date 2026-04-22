@@ -28,18 +28,18 @@ export async function MarketingNav() {
             文案檢測
           </Link>
           {authed ? (
-            <Link href="/dashboard" className="transition hover:text-ink">
-              控制台
+            <Link href="/analyze" className="transition hover:text-ink">
+              工作區
             </Link>
           ) : null}
         </nav>
         <div className="flex items-center gap-2">
           {authed ? (
             <Link
-              href="/dashboard"
+              href="/analyze"
               className="inline-flex h-9 items-center justify-center rounded-lg border border-surface-border bg-white px-3 text-sm font-medium text-ink transition hover:bg-zinc-50"
             >
-              進入控制台
+              進入檢測
             </Link>
           ) : (
             <>

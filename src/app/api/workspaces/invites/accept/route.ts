@@ -31,6 +31,7 @@ export async function POST(request: Request) {
     const map: Record<string, string> = {
       not_found: "邀請不存在。",
       expired: "邀請已過期。",
+      revoked: "邀請已撤銷。",
       email_mismatch: "請以受邀 Email 登入相同帳號。",
       already_accepted: "邀請已使用。",
     };

@@ -46,9 +46,16 @@ export type AnalysisMeta = {
   source: "openai" | "mock";
   guest: boolean;
   quotaRemaining: number | null;
+  /** 工作區方案（SSOT：`workspaces.plan`） */
   plan?: string | null;
   workspaceId?: string | null;
   workspaceName?: string | null;
+  /** 工作區月度共用審查額度上限（`workspaces.monthly_quota_units`） */
+  workspaceMonthlyQuotaUnits?: number | null;
+  /** 工作區訂閱狀態（`workspaces.subscription_status`） */
+  workspaceSubscriptionStatus?: string | null;
+  /** 工作區帳務來源（`workspaces.billing_provider`） */
+  workspaceBillingProvider?: string | null;
   inputKind?: AnalysisInputKind;
   unitsCharged?: number;
   ocrConfidence?: number | null;
@@ -59,6 +66,8 @@ export type AnalysisResult = {
   summary: string;
   scannedAt: string;
   meta: AnalysisMeta;
+  /** API 回傳：送交分析的原文（圖片 OCR／編輯後文字等），供前端高亮對照 */
+  analyzedText?: string;
   /** PDF：分頁結果與風險頁碼 */
   pdfReport?: {
     pageCount: number;

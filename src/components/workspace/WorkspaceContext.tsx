@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 export type WorkspaceListItem = {
   id: string;
@@ -18,8 +19,14 @@ type WorkspaceContextValue = {
   workspaces: WorkspaceListItem[];
   selectedId: string | null;
   setSelectedId: (id: string) => void;
+  /** Current auth user id (for members UI self vs others). */
+  viewerUserId: string | null;
   loading: boolean;
+  /** Set when GET /api/workspaces could not run ensure_user_workspace (or RPC returned ok: false). */
+  ensureError: string | null;
+  recovering: boolean;
   refresh: () => Promise<void>;
+  recoverWorkspace: () => Promise<void>;
 };
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
@@ -30,12 +37,21 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [workspaces, setWorkspaces] = useState<WorkspaceListItem[]>([]);
   const [selectedId, setSelectedIdState] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [ensureError, setEnsureError] = useState<string | null>(null);
+  const [recovering, setRecovering] = useState(false);
+  const [viewerUserId, setViewerUserId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
       const res = await fetch("/api/workspaces", { credentials: "same-origin" });
-      const data = (await res.json()) as { workspaces?: WorkspaceListItem[] };
+      const data = (await res.json()) as {
+        workspaces?: WorkspaceListItem[];
+        ensureError?: string | null;
+        viewerUserId?: string;
+      };
       const list = data.workspaces ?? [];
+      setViewerUserId(typeof data.viewerUserId === "string" ? data.viewerUserId : null);
+      setEnsureError(list.length > 0 ? null : data.ensureError ?? null);
       setWorkspaces(list);
       setSelectedIdState((prev) => {
         if (typeof window !== "undefined") {
@@ -51,6 +67,23 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const recoverWorkspace = useCallback(async () => {
+    setRecovering(true);
+    try {
+      const res = await fetch("/api/workspaces/ensure", { method: "POST", credentials: "same-origin" });
+      const body = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || body.ok === false) {
+        setEnsureError(body.error ?? "repair_failed");
+        toast.error("仍無法建立工作區", { description: "請稍後重試或重新整理頁面。" });
+        return;
+      }
+      await refresh();
+      toast.success("工作區已就緒", { description: "多帳號可共用此工作區之審查額度。" });
+    } finally {
+      setRecovering(false);
+    }
+  }, [refresh]);
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -65,10 +98,14 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       workspaces,
       selectedId,
       setSelectedId,
+      viewerUserId,
       loading,
+      ensureError,
+      recovering,
       refresh,
+      recoverWorkspace,
     }),
-    [workspaces, selectedId, setSelectedId, loading, refresh]
+    [workspaces, selectedId, setSelectedId, viewerUserId, loading, ensureError, recovering, refresh, recoverWorkspace]
   );
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;

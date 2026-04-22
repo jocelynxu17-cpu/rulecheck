@@ -19,6 +19,34 @@ type ConsumePayload = {
   error?: string;
 };
 
+/** 目前分析目標工作區之帳務欄位（SSOT，來自 `workspaces`）。 */
+type WorkspaceBillingForAnalysis = {
+  name: string;
+  plan: string | null;
+  monthly_quota_units: number | null;
+  subscription_status: string | null;
+  billing_provider: string | null;
+};
+
+function analysisWorkspaceMeta(ws: WorkspaceBillingForAnalysis | null) {
+  if (!ws) {
+    return {
+      plan: null as string | null,
+      workspaceMonthlyQuotaUnits: null as number | null,
+      workspaceSubscriptionStatus: null as string | null,
+      workspaceBillingProvider: null as string | null,
+      workspaceName: null as string | null,
+    };
+  }
+  return {
+    plan: ws.plan ?? null,
+    workspaceMonthlyQuotaUnits: ws.monthly_quota_units ?? null,
+    workspaceSubscriptionStatus: ws.subscription_status ?? null,
+    workspaceBillingProvider: ws.billing_provider ?? null,
+    workspaceName: ws.name,
+  };
+}
+
 function guestCookieOptions() {
   return {
     httpOnly: true as const,
@@ -62,7 +90,7 @@ async function consumeWorkspace(
       return {
         ok: false as const,
         response: NextResponse.json(
-          { error: "本月共用分析額度已用完，請調整配額或次月再試。" },
+          { error: "本月共用審查額度已用完，請調整配額或次月再試。" },
           { status: 429 }
         ),
       };
@@ -91,6 +119,8 @@ export async function POST(request: Request) {
   let textIn = "";
   let file: File | null = null;
 
+  let ocrTextOverride = "";
+
   if (contentType.includes("multipart/form-data")) {
     const form = await request.formData();
     workspaceIdIn = typeof form.get("workspaceId") === "string" ? (form.get("workspaceId") as string) : null;
@@ -98,6 +128,8 @@ export async function POST(request: Request) {
     if (k === "image" || k === "pdf" || k === "text") kind = k;
     const t = form.get("text");
     if (typeof t === "string") textIn = t;
+    const ocrT = form.get("ocrText");
+    if (typeof ocrT === "string") ocrTextOverride = ocrT;
     const f = form.get("file");
     if (f instanceof File) file = f;
   } else {
@@ -145,14 +177,14 @@ export async function POST(request: Request) {
   }
   const workspaceId = ws.workspaceId;
 
-  const { data: wsRow } = await supabase
+  const { data: wsBillingRaw } = await supabase
     .from("workspaces")
-    .select("name")
+    .select("name, plan, monthly_quota_units, subscription_status, billing_provider")
     .eq("id", workspaceId)
     .maybeSingle();
 
-  const { data: profile } = await supabase.from("users").select("plan").eq("id", user.id).maybeSingle();
-  const plan = profile?.plan ?? null;
+  const wsBilling = wsBillingRaw as WorkspaceBillingForAnalysis | null;
+  const wb = analysisWorkspaceMeta(wsBilling);
 
   let result: AnalysisResult;
   let inputTextForLog = "";
@@ -170,13 +202,17 @@ export async function POST(request: Request) {
 
     result = await runComplianceAnalysis(textIn.trim(), {
       guest: false,
-      plan,
+      plan: wb.plan,
+      workspaceMonthlyQuotaUnits: wb.workspaceMonthlyQuotaUnits,
+      workspaceSubscriptionStatus: wb.workspaceSubscriptionStatus,
+      workspaceBillingProvider: wb.workspaceBillingProvider,
       quotaRemaining: consumed.remaining,
       workspaceId,
-      workspaceName: wsRow?.name ?? null,
+      workspaceName: wb.workspaceName,
       inputKind: "text",
       unitsCharged: 1,
     });
+    result = { ...result, analyzedText: textIn.trim() };
     inputTextForLog = textIn.slice(0, 50_000);
   } else if (kind === "image") {
     if (!file) {
@@ -186,34 +222,49 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "圖片檔過大（上限 10MB）。" }, { status: 400 });
     }
     const buf = Buffer.from(await file.arrayBuffer());
-    let ocr: { text: string; confidence: number };
-    try {
-      ocr = await ocrImageBuffer(buf);
-    } catch (e) {
-      console.error("ocr:", e);
-      return NextResponse.json({ error: "圖片文字辨識失敗，請改用輸入文字或更清晰的圖檔。" }, { status: 422 });
-    }
-    if (!ocr.text.trim()) {
-      return NextResponse.json({ error: "無法從圖片辨識出文字。" }, { status: 400 });
+
+    let textForAnalysis: string;
+    let ocrConfidence: number | null = null;
+    const trimmedOverride = ocrTextOverride.trim();
+
+    if (trimmedOverride) {
+      textForAnalysis = trimmedOverride;
+    } else {
+      let ocr: { text: string; confidence: number };
+      try {
+        ocr = await ocrImageBuffer(buf);
+      } catch (e) {
+        console.error("ocr:", e);
+        return NextResponse.json({ error: "圖片文字辨識失敗，請改用輸入文字或更清晰的圖檔。" }, { status: 422 });
+      }
+      if (!ocr.text.trim()) {
+        return NextResponse.json({ error: "無法從圖片辨識出文字。" }, { status: 400 });
+      }
+      textForAnalysis = ocr.text;
+      ocrConfidence = ocr.confidence;
     }
 
     const consumed = await consumeWorkspace(supabase, workspaceId, user.id, 1, "image", {
-      mode: "ocr",
+      mode: trimmedOverride ? "ocr_edited" : "ocr",
       bytes: file.size,
     });
     if (!consumed.ok) return consumed.response;
 
-    result = await runComplianceAnalysis(ocr.text, {
+    result = await runComplianceAnalysis(textForAnalysis, {
       guest: false,
-      plan,
+      plan: wb.plan,
+      workspaceMonthlyQuotaUnits: wb.workspaceMonthlyQuotaUnits,
+      workspaceSubscriptionStatus: wb.workspaceSubscriptionStatus,
+      workspaceBillingProvider: wb.workspaceBillingProvider,
       quotaRemaining: consumed.remaining,
       workspaceId,
-      workspaceName: wsRow?.name ?? null,
+      workspaceName: wb.workspaceName,
       inputKind: "image",
       unitsCharged: 1,
-      ocrConfidence: ocr.confidence,
+      ocrConfidence,
     });
-    inputTextForLog = ocr.text.slice(0, 50_000);
+    result = { ...result, analyzedText: textForAnalysis };
+    inputTextForLog = textForAnalysis.slice(0, 50_000);
   } else {
     if (!file) {
       return NextResponse.json({ error: "請上傳 PDF。" }, { status: 400 });
@@ -254,10 +305,13 @@ export async function POST(request: Request) {
     for (const p of pages) {
       const pageAnalysis = await runComplianceAnalysis(p.text, {
         guest: false,
-        plan,
+        plan: wb.plan,
+        workspaceMonthlyQuotaUnits: wb.workspaceMonthlyQuotaUnits,
+        workspaceSubscriptionStatus: wb.workspaceSubscriptionStatus,
+        workspaceBillingProvider: wb.workspaceBillingProvider,
         quotaRemaining: consumed.remaining,
         workspaceId,
-        workspaceName: wsRow?.name ?? null,
+        workspaceName: wb.workspaceName,
         inputKind: "pdf",
         unitsCharged: units,
       });
@@ -286,10 +340,13 @@ export async function POST(request: Request) {
       meta: {
         source: pdfEngine,
         guest: false,
-        plan,
+        plan: wb.plan,
+        workspaceMonthlyQuotaUnits: wb.workspaceMonthlyQuotaUnits,
+        workspaceSubscriptionStatus: wb.workspaceSubscriptionStatus,
+        workspaceBillingProvider: wb.workspaceBillingProvider,
         quotaRemaining: consumed.remaining,
         workspaceId,
-        workspaceName: wsRow?.name ?? null,
+        workspaceName: wb.workspaceName,
         inputKind: "pdf",
         unitsCharged: units,
       },

@@ -4,22 +4,37 @@ import { AppSidebar } from "@/components/app/AppSidebar";
 import { AppTopBar } from "@/components/app/AppTopBar";
 import { MarketingNav } from "@/components/marketing/MarketingNav";
 import { WorkspaceProvider } from "@/components/workspace/WorkspaceContext";
+import { WorkspaceRecoveryBanner } from "@/components/workspace/WorkspaceRecoveryBanner";
 
 export function AppChrome({
   user,
+  /** @deprecated 使用 variant + showInternalEntry */
+  isAdmin = false,
+  /** 使用者端：僅一般產品導覽，不顯示內部營運側欄。 */
+  variant = "legacy",
+  showInternalEntry = false,
   children,
 }: {
   user: User | null;
+  isAdmin?: boolean;
+  variant?: "consumer" | "legacy";
+  showInternalEntry?: boolean;
   children: React.ReactNode;
 }) {
+  const sidebarMode =
+    variant === "consumer" ? "consumer" : isAdmin ? "legacy-admin" : "legacy";
+
   if (user) {
     return (
       <WorkspaceProvider>
         <div className="flex min-h-screen bg-canvas">
-          <AppSidebar />
+          <AppSidebar mode={sidebarMode} />
           <div className="flex min-w-0 flex-1 flex-col">
-            <AppTopBar email={user.email} />
-            <div className="flex-1 px-5 py-10 sm:px-8 lg:px-12 lg:py-12">{children}</div>
+            <AppTopBar email={user.email} showInternalEntry={showInternalEntry} />
+            <div className="flex-1 space-y-6 px-5 py-10 sm:px-8 lg:px-12 lg:py-12">
+              <WorkspaceRecoveryBanner />
+              {children}
+            </div>
           </div>
         </div>
       </WorkspaceProvider>

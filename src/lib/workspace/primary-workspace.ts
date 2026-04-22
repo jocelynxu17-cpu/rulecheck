@@ -29,6 +29,7 @@ const workspaceSelect = `
 
 /**
  * Prefer a workspace the user owns; otherwise first membership.
+ * 產品 UI 帳務讀取請優先使用 getPrimaryWorkspaceBillingUiSnapshot（@/lib/workspace/workspace-billing-snapshot）。
  */
 export async function getPrimaryWorkspaceForUser(
   supabase: SupabaseClient,

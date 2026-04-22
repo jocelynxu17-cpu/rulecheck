@@ -12,6 +12,7 @@ import {
   resolveUserIdForSubscriptionSync,
   stripeSubscriptionIdFromExpandable,
 } from "@/lib/stripe-subscription-sync";
+import { recordPaymentEventIfNew } from "@/lib/billing/payment-events";
 
 export async function POST(request: Request) {
   const stripe = getStripe();
@@ -38,6 +39,18 @@ export async function POST(request: Request) {
 
   try {
     const admin = createAdminClient();
+
+    const audit = await recordPaymentEventIfNew(admin, {
+      userId: null,
+      subscriptionId: null,
+      provider: "stripe",
+      eventType: event.type,
+      idempotencyKey: `stripe:event:${event.id}`,
+      payload: { stripe_event_id: event.id, type: event.type },
+    });
+    if (!audit.ok) {
+      console.error("stripe webhook audit log:", audit.error);
+    }
 
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
