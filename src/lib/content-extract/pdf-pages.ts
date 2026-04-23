@@ -1,48 +1,44 @@
-import { PDFParse } from "pdf-parse";
 import type { PdfPageText } from "@/types/analysis";
 
 export const PDF_MAX_PAGES = 50;
 
 /**
- * 以 pdf-parse v2（PDFParse + pdfjs）擷取每頁文字。
- * v1「直接呼叫 default(buffer)」與 v2 套件不相容，會導致執行期失敗。
+ * Server-side PDF text per page via unpdf (serverless-friendly bundle + DOMMatrix stub).
+ * Kept in this module so callers can dynamic-import it only on the PDF path.
  */
 export async function extractPdfPages(buffer: Buffer): Promise<{
   pages: PdfPageText[];
   pageCount: number;
 }> {
-  const parser = new PDFParse({ data: buffer });
+  const { getDocumentProxy } = await import("unpdf");
+  const pdf = await getDocumentProxy(new Uint8Array(buffer));
   try {
-    const textResult = await parser.getText();
-    const totalRaw = textResult.total ?? 0;
-    const totalPages = Math.min(Math.max(totalRaw, 1), PDF_MAX_PAGES);
+    const numPages = pdf.numPages;
+    const toRead = Math.min(Math.max(numPages, 1), PDF_MAX_PAGES);
+    const pages: PdfPageText[] = [];
 
-    let pages: PdfPageText[] = (textResult.pages ?? [])
-      .filter((p) => p.num <= PDF_MAX_PAGES)
-      .map((p) => ({
-        pageNumber: p.num,
-        text: String(p.text ?? "")
-          .replace(/\u0000/g, "")
-          .replace(/\s+/g, " ")
-          .trim() || " ",
-      }));
-
-    if (!pages.length && String(textResult.text ?? "").trim()) {
-      const flat = String(textResult.text)
-        .replace(/\u0000/g, "")
-        .replace(/\s+/g, " ")
-        .trim();
-      pages = [{ pageNumber: 1, text: flat.slice(0, 120_000) || " " }];
+    for (let pageNum = 1; pageNum <= toRead; pageNum++) {
+      const page = await pdf.getPage(pageNum);
+      const content = await page.getTextContent();
+      const raw = content.items
+        .filter((item) => "str" in item && item.str != null)
+        .map((item) => {
+          const it = item as { str: string; hasEOL?: boolean };
+          return it.str + (it.hasEOL ? "\n" : "");
+        })
+        .join("");
+      const cleaned = raw.replace(/\u0000/g, "").replace(/\s+/g, " ").trim() || " ";
+      pages.push({ pageNumber: pageNum, text: cleaned.slice(0, 120_000) });
     }
 
     if (!pages.length) {
       throw new Error("pdf_no_extractable_pages");
     }
 
-    const pageCount = pdfUnitsFromPageCount(totalPages);
+    const pageCount = pdfUnitsFromPageCount(toRead);
     return { pages, pageCount };
   } finally {
-    await parser.destroy().catch(() => undefined);
+    await pdf.destroy().catch(() => undefined);
   }
 }
 

@@ -4,7 +4,7 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  serverExternalPackages: ["pdf-parse", "tesseract.js"],
+  serverExternalPackages: ["tesseract.js", "unpdf"],
 };
 
 export default nextConfig;

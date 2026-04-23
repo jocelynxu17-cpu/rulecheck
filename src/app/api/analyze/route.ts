@@ -2,7 +2,6 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { runComplianceAnalysis } from "@/lib/analyze/run-compliance";
-import { extractPdfPages, pdfUnitsFromPageCount } from "@/lib/content-extract/pdf-pages";
 import { IMAGE_MAX_BYTES, ocrImageBuffer, PDF_MAX_BYTES } from "@/lib/content-extract/image-ocr";
 import { resolveWorkspaceForUser } from "@/lib/workspace/resolve-workspace";
 import type { AnalysisInputKind, AnalysisResult, PdfPageAnalysis } from "@/types/analysis";
@@ -193,6 +192,9 @@ export async function POST(request: Request) {
   let inputTextForLog = "";
   let units = 1;
   let pdfPageCount: number | null = null;
+  /** Temporary production diagnostics (see `[analyze] pipeline`). */
+  let logOcrTextLength: number | null = null;
+  let logPdfExtractedPages: number | null = null;
 
   if (kind === "text") {
     if (!textIn.trim()) {
@@ -238,6 +240,7 @@ export async function POST(request: Request) {
 
     if (trimmedOverride) {
       textForAnalysis = trimmedOverride;
+      logOcrTextLength = textForAnalysis.length;
       console.log("[analyze] image path", { mode: "ocr_edited", ocrTextLength: textForAnalysis.length, fileBytes: file.size });
     } else {
       let ocr: { text: string; confidence: number };
@@ -259,6 +262,7 @@ export async function POST(request: Request) {
       }
       textForAnalysis = ocr.text;
       ocrConfidence = ocr.confidence;
+      logOcrTextLength = textForAnalysis.length;
     }
 
     const consumed = await consumeWorkspace(supabase, workspaceId, user.id, 1, "image", {
@@ -297,9 +301,11 @@ export async function POST(request: Request) {
     let pages: { pageNumber: number; text: string }[];
     let pageCount: number;
     try {
+      const { extractPdfPages, pdfUnitsFromPageCount } = await import("@/lib/content-extract/pdf-pages");
       const extracted = await extractPdfPages(buf);
       pages = extracted.pages;
       pageCount = pdfUnitsFromPageCount(extracted.pageCount);
+      logPdfExtractedPages = pages.length;
       console.log("[analyze] PDF extracted", {
         pageCount,
         pagesReturned: pages.length,
@@ -307,7 +313,13 @@ export async function POST(request: Request) {
         fileBytes: file.size,
       });
     } catch (e) {
-      console.error("[analyze] PDF parse failure:", e);
+      const err = e instanceof Error ? e : new Error(String(e));
+      console.error("[analyze] PDF parse failure", {
+        message: err.message,
+        name: err.name,
+        stack: err.stack?.slice(0, 800),
+        cause: err.cause,
+      });
       return NextResponse.json({ error: "無法解析 PDF。" }, { status: 422 });
     }
 
@@ -394,6 +406,14 @@ export async function POST(request: Request) {
   }
 
   const normalized: AnalysisResult = kind === "pdf" ? normalizeAnalysisResult(result, inputTextForLog) : result;
+
+  console.log("[analyze] pipeline", {
+    kind,
+    source: normalized.meta?.source ?? null,
+    ocrTextLength: logOcrTextLength,
+    pdfExtractedPageCount: logPdfExtractedPages,
+    findingsCount: normalized.findings.length,
+  });
 
   const { error: logError } = await supabase.from("analysis_logs").insert({
     user_id: user.id,
