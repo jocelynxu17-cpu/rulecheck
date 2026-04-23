@@ -1,190 +1,240 @@
 import type { AnalysisFinding, AnalysisResult } from "@/types/analysis";
 import { mergeFindingsSpans } from "@/lib/text-spans";
 
-type Rule = {
-  match: string;
+/** 與 UI / Zod 一致之四大類；細緻分類寫入 riskType 前綴【…】。 */
+type LegalRiskLabel =
+  | "醫療療效暗示"
+  | "誇大效果"
+  | "絕對化/保證性表述"
+  | "速效或數字結果承諾"
+  | "容易誤導的效果描述";
+
+type ClaimRule = {
+  /** 去重用 */
+  id: string;
+  riskLabel: LegalRiskLabel;
   category: AnalysisFinding["category"];
-  riskType: string;
   severity: AnalysisFinding["severity"];
   lawName: string;
   article: string;
+  /** 從全文擷取第一個符合之宣稱片段（子句級），無則 null */
+  extract: (text: string) => string | null;
+  /** 說明「這類宣稱在說什麼」與法規意旨，不依賴單一禁字 */
   reason: string;
   legalReference: string;
   suggestion: string;
   rewrites: AnalysisFinding["rewrites"];
+  /** 短標題：描述宣稱性質，不必等於原文詞 */
+  phraseTitle: (matched: string) => string;
 };
 
-/** 關鍵字由長到短排序，避免短詞先吃掉長詞（仍允許多筆不重疊命中）。 */
-const RULES_UNSORTED: Rule[] = [
+function firstMatch(text: string, re: RegExp): string | null {
+  const m = text.match(re);
+  if (!m || !m[0]?.trim()) return null;
+  return m[0].trim().slice(0, 200);
+}
+
+const CLAIM_RULES: ClaimRule[] = [
   {
-    match: "七天瘦五公斤",
+    id: "timed-numeric-body-outcome",
+    riskLabel: "速效或數字結果承諾",
     category: "誇大",
-    riskType: "具體時程與體重承諾，高度易被認定為虛偽不實或誇大廣告",
     severity: "high",
     lawName: "公平交易法",
     article: "第21條",
-    reason: "對減重成效與期程的具體承諾，若無充分科學依證，極易構成誇大或不實廣告。",
+    extract: (t) =>
+      firstMatch(
+        t,
+        /\d{1,3}\s*(?:天|日|週|周|個月|月)\s*[\s\S]{0,24}?(?:瘦|減重|減肥|公斤|kg|體重|腰圍|公分|cm)/i
+      ),
+    reason:
+      "此類片語將「時間」與「可量化身體指標變化」綁定，屬對使用結果的具體承諾；在無充分、可驗證之科學與個案條件揭露下，實務上易被認為超出合理廣告範圍，而構成誇大或不實之虞。",
     legalReference:
-      "《公平交易法》第21條：廣告表示應避免引人錯誤；涉及食品／健康宣稱亦受食品安全衛生管理法等規範（示意）。",
-    suggestion: "移除具體天數／公斤數承諾，改為需個人差異警語之生活型態描述，並保留可驗證依據。",
+      "公平交易法禁止引人錯誤或虛偽不實之表示；涉及健康宣稱時，亦可能與食品安全衛生管理法、化粧品標示廣告相關規範產生競合（概念整理，非釋字）。",
+    suggestion:
+      "改以「需配合飲食／運動」「效果因人而異」等可驗證條件之中性敘述，避免具體天數與身體數值之必然連結。",
     rewrites: {
-      conservative: "刪除具體瘦身時程與公斤數；改為「需配合飲食與運動」並附個人差異聲明。",
-      marketing: "以「循序調整」與「體態管理」敘事取代數字承諾，並揭露個人差異。",
-      ecommerce: "主圖／副標避免數字保證；短句強調習慣與營養，不宣稱必然結果。",
+      conservative: "刪除具體時程與公斤／腰圍數字承諾；改附個人差異與必要生活條件說明。",
+      marketing: "改為「循序調整節奏」等敘事，並揭露影響結果之變因。",
+      ecommerce: "主圖／副標避免數字＋身體結果之組合；改短句說明使用情境與非保證聲明。",
     },
+    phraseTitle: () => "時程與身體數值結果之具體承諾",
   },
   {
-    match: "快速減肥",
+    id: "absolute-guarantee-outcome",
+    riskLabel: "絕對化/保證性表述",
     category: "誇大",
-    riskType: "「快速」搭配減肥易被認定為誇大或不實宣稱",
     severity: "high",
     lawName: "公平交易法",
     article: "第21條",
-    reason: "暗示短期必然成效，食品／一般商品通常不得宣稱醫療或減肥療效。",
-    legalReference: "公平交易法對引人錯誤、誇大廣告之裁處類型（概念整理）。",
-    suggestion: "避免「快速」「保證」與減重結果連結；改為可驗證、需個人配合之描述。",
+    extract: (t) =>
+      firstMatch(
+        t,
+        /(?:保證|一定|必然|百分百|100\s*%|無效退款|沒效退錢|無效\s*退)\s*[\s\S]{0,20}?(?:有效|見效|成功|瘦|白|亮|改善|解決)/i
+      ),
+    reason:
+      "將商品效果與「必然結果」或「退款承諾」綁定，易使消費者認為效果已獲確保；若實際條件、適用範圍或證據不足，可能被認定為引人錯誤或誇大。",
+    legalReference:
+      "公平交易法第21條對廣告真實性與是否引人錯誤之判斷架構（示意）；實際仍視整體文案與交易條件而定。",
+    suggestion:
+      "改為清楚揭露條件、適用範圍與個人差異之中性售後或體驗描述，避免「必然有效」之絕對化語氣。",
     rewrites: {
-      conservative: "改為「需時間與生活習慣配合」之中性敘述，並附警語。",
-      marketing: "以「日常節奏調整」取代「快速減肥」承諾。",
-      ecommerce: "刪除「快速減肥」字樣，改寫為營養／運動搭配之提示。",
+      conservative: "刪除保證／退款與效果之直接掛勾；改列可查證之使用條件與客服管道。",
+      marketing: "以「許多人於某條件下之體驗」等可佐證敘述取代絕對保證。",
+      ecommerce: "主圖不出現「保證／無效退款」與效果連寫；改短句＋完整退換政策連結。",
     },
+    phraseTitle: () => "效果絕對化或與退款條款綁定之宣稱",
   },
   {
-    match: "治療痘痘",
+    id: "medical-efficacy-verbs",
+    riskLabel: "醫療療效暗示",
     category: "醫療效能",
-    riskType: "涉及疾病治療暗示，化粧品與一般商品不得宣稱醫療效能",
     severity: "high",
     lawName: "化粧品衛生安全管理法",
     article: "相關規範",
-    reason: "「治療」結合特定皮膚症狀，易被認定為醫療效能宣稱。",
-    legalReference: "化粧品標示與廣告不得宣稱醫療效能（法規概念整理）。",
-    suggestion: "改為可驗證之日常護理或清潔描述，避免連結「治療」與疾病名稱。",
+    extract: (t) =>
+      firstMatch(
+        t,
+        /(?:治療|根治|消炎|殺菌|滅菌|抗菌藥效|藥用|醫療級|修復細胞|重建皮膚)\s*[\s\S]{0,20}?(?:痘|疮|炎|敏|病|疣|癣|傷口|感冒|疼痛|過敏|體質|菌)/i
+      ),
+    reason:
+      "文案出現將商品與「疾病、症狀之治療或醫療級效果」連結之敘述；化粧品與多數一般商品依法不得為醫療效能宣稱，易被認定違反禁絕醫療廣告或標示之精神。",
+    legalReference:
+      "化粧品標示、廣告不得宣稱醫療效能；涉及藥品才容許之療效語彙於一般商品廣告中高度敏感（法規意旨整理）。",
+    suggestion:
+      "改為核准範圍內、可驗證之清潔／護理或感官描述，避免與疾病名稱、治療行為直接連結。",
     rewrites: {
-      conservative: "改為「清潔／調理」等中性用途，並依核准範圍標示。",
-      marketing: "以「舒適清爽」等感受描述，避免「治療痘痘」。",
-      ecommerce: "短句呈現成分與使用方式，不出現治療承諾。",
+      conservative: "全面改寫為非治療、非療效之中性用途描述，並請法務對照核准範圍。",
+      marketing: "以使用感受、日常照護流程呈現，不出現治療或醫療級暗示。",
+      ecommerce: "以成分、使用方法為主，避免疾病詞＋治療動詞之組合。",
     },
+    phraseTitle: () => "與疾病或治療行為連結之宣稱",
   },
   {
-    match: "消炎抗菌",
+    id: "constitution-allergy-claim",
+    riskLabel: "醫療療效暗示",
     category: "醫療效能",
-    riskType: "「消炎」「抗菌」常被認定屬醫療或藥事宣稱",
-    severity: "high",
-    lawName: "化粧品衛生安全管理法",
-    article: "相關規範",
-    reason: "組合用語易被認定暗示醫療或抗菌藥效，化粧品廣告須特別謹慎。",
-    legalReference: "化粧品不得宣稱醫療效能；抗菌宣稱亦可能涉及藥事法規（示意）。",
-    suggestion: "改為中性、可驗證之清潔或護理描述，並保留科學依據與標示合規。",
-    rewrites: {
-      conservative: "刪除「消炎抗菌」；改為已核准可宣稱之範圍內用語。",
-      marketing: "以「清潔感」「日常護理」取代醫療暗示。",
-      ecommerce: "避免併用醫療暗示詞，改寫為用途與成分重點。",
-    },
-  },
-  {
-    match: "保證有效",
-    category: "誇大",
-    riskType: "「保證」搭配效果宣稱，易被認定為虛偽不實或誇大",
     severity: "high",
     lawName: "公平交易法",
     article: "第21條",
-    reason: "絕對化用語暗示必然結果，實務上高度敏感。",
-    legalReference: "公平交易法第21條對引人錯誤表示之規範（示意）。",
-    suggestion: "刪除「保證」「100%」等絕對化用語，改附個人差異與必要條件。",
-    rewrites: {
-      conservative: "改為「可能因個人體質而異」並避免保證式文案。",
-      marketing: "以「許多使用者回饋」等可佐證敘事取代保證。",
-      ecommerce: "主圖不出現「保證有效」；改短句＋警語。",
-    },
-  },
-  {
-    match: "治療",
-    category: "醫療效能",
-    riskType: "涉及醫療效能之宣稱",
-    severity: "high",
-    lawName: "公平交易法",
-    article: "第21條",
-    reason: "「治療」易使一般大眾認為具醫療效能，化粧品／一般食品通常不得如此宣稱。",
+    extract: (t) => firstMatch(t, /(?:改善|調整|改變)\s*[\s\S]{0,8}?過敏體質/i),
+    reason:
+      "「體質」尤其是過敏體質，涉及個人生理狀態之改變；宣稱可改善易被理解為生理機能或過敏狀態之變更，而超出一般商品可得宣稱之範圍。",
     legalReference:
-      "《公平交易法》第21條：廣告不得有不實、引人錯誤或其他違反公序良俗之表示（示意整理，非釋字）。",
-    suggestion: "避免宣稱疾病「治療」效果；僅能於主管機關核准範圍內、以可佐證之方式描述。",
+      "健康相關宣稱可能同時觸及公平交易法「引人錯誤」與食品安全衛生管理法對食品宣稱之限制（視產品性質而定；此處為意旨說明）。",
+    suggestion:
+      "改為不涉及體質改變承諾之中性描述，或僅在主管機關核准之健康食品宣稱範圍內為之。",
     rewrites: {
-      conservative: "請依主管機關核准之用途與標示內容描述，避免涉及疾病治療暗示。",
-      marketing: "以日常照護角度描述使用感受，並避免連結到疾病治療或療效承諾。",
-      ecommerce: "重點式呈現成分與使用方法，避免「治療」等醫療用語。",
+      conservative: "刪除體質改變承諾；改為「個人生活習慣搭配」並附非醫療聲明。",
+      marketing: "改以「舒適感受」「日常節奏」等可驗證、不涉療效之語彙。",
+      ecommerce: "避免「體質」與「改善」並列；改寫為情境與使用方式。",
     },
+    phraseTitle: () => "涉及過敏體質改變之宣稱",
   },
   {
-    match: "消炎",
-    category: "醫療效能",
-    riskType: "可能涉及未經核准之醫療效能",
-    severity: "high",
-    lawName: "化粧品衛生安全管理法",
-    article: "相關規範",
-    reason: "「消炎」常被認定屬醫療效能宣稱，化粧品不得以醫療效能廣告。",
-    legalReference:
-      "化粧品之標示、廣告不得宣稱醫療效能（法規概念整理；實際適用請以主管機關見解為準）。",
-    suggestion: "避免「消炎」等醫療用語；可改為中性、可驗證之描述並保留證據。",
-    rewrites: {
-      conservative: "建議改為「舒緩」等中性詞前，先確認是否有科學依據與試驗支持。",
-      marketing: "以「舒適感」「穩定狀態」等可驗證感受描述，避免直接連結醫療效果。",
-      ecommerce: "短句呈現「日常護理」重點，避免「消炎」等醫療暗示。",
-    },
-  },
-  {
-    match: "瘦身",
+    id: "superlative-ranking",
+    riskLabel: "誇大效果",
     category: "誇大",
-    riskType: "減重／身材相關易構成誇大或不實廣告",
     severity: "medium",
     lawName: "公平交易法",
     article: "第21條",
-    reason: "涉及身材／體重之承諾易被認定為誇大或不實，食品亦不得宣稱醫療效能。",
+    extract: (t) =>
+      firstMatch(t, /(?:最|第一|唯一|No\.?\s*1|冠軍|史上|全台|全國)(?:強|有效|好用|快|猛|厲害|專業|指定)/i),
+    reason:
+      "極度化或市場排序類用語，若無客觀、可驗證之依據與比較基準，易被認定為對品質或效果為超越合理範圍之宣稱。",
     legalReference:
-      "《公平交易法》第21條：廣告表示應避免引人錯誤；食品廣告亦受食品安全衛生管理法規範（示意）。",
-    suggestion: "避免保證或暗示必然瘦身；涉及食品須符合食安法與相關標示規範。",
+      "公平交易委員會對「最好」「第一」等比較廣告之審查重點在於是否有主客觀依據及揭露比較對象（概念整理）。",
+    suggestion:
+      "改為可驗證之具體事實（例如試驗條件、樣本範圍）或刪除無從證明之極度化用語。",
     rewrites: {
-      conservative: "避免保證瘦身；可改為「搭配飲食與運動」之生活型態描述並附警語。",
-      marketing: "以「體態管理」方向描述，並清楚揭露個人差異與必要生活習慣。",
-      ecommerce: "用短句強調「日常習慣」與「營養補給」，避免保證式承諾。",
+      conservative: "刪除無法舉證之「最／第一／唯一」等用語。",
+      marketing: "改為「許多使用者主觀感受」並附調查條件摘要。",
+      ecommerce: "主圖改短句產品特色，不出現絕對化排名。",
     },
+    phraseTitle: () => "極度化或無基準之排名／效果宣稱",
   },
   {
-    match: "排毒",
+    id: "misleading-vague-physiology",
+    riskLabel: "容易誤導的效果描述",
     category: "誤導",
-    riskType: "常見誇大或誤導性宣稱",
     severity: "medium",
     lawName: "公平交易法",
     article: "第21條",
-    reason: "「排毒」語意模糊，易被認定引人錯誤或暗示未經證實之生理機制。",
+    extract: (t) =>
+      firstMatch(t, /(?:排毒|清毒|淨化(?:血液|體內)|代謝毒素|體內(?:大)?掃除|深層(?:排毒|代謝))/i),
+    reason:
+      "此類語彙常缺乏可操作、可驗證之定義，易使消費者對生理作用產生具體聯想卻無從證成，而被認為屬引人錯誤或誇大之模糊宣稱。",
     legalReference:
-      "公平交易委員會對涉及誇大、引人錯誤之廣告裁處案例類型（概念整理；請自行查證最新函釋）。",
-    suggestion: "以具體、可驗證之機制說明取代模糊「排毒」用語。",
+      "公平交易法對「表示內容是否足以使一般消費者產生錯誤認知」之判斷框架（示意）。",
+    suggestion:
+      "改以可驗證之機制、範圍與條件說明取代模糊生理隱喻；若無科學共識支持應避免使用。",
     rewrites: {
-      conservative: "以可驗證之機制與範圍描述，避免「排毒」等暗示疾病關聯之詞。",
-      marketing: "改以「清爽感」「循環感」等中性感受描述，並保留科學依據。",
-      ecommerce: "用「日常保養」導向短句，避免「排毒」承諾。",
+      conservative: "刪除排毒／淨化血液等語；改列具體成分與物理性清潔或保濕等功能。",
+      marketing: "改為「清爽感」「使用後觸感」等可感知描述。",
+      ecommerce: "主圖用「日常保養」導向，不出現生理排毒承諾。",
     },
+    phraseTitle: () => "模糊生理機轉或排毒隱喻",
+  },
+  {
+    id: "rapid-weight-wording",
+    riskLabel: "誇大效果",
+    category: "誇大",
+    severity: "medium",
+    lawName: "公平交易法",
+    article: "第21條",
+    extract: (t) => firstMatch(t, /(?:快速|速效|立即|瞬間)\s*[\s\S]{0,12}?(?:瘦|減重|減肥|塑身|甩肉|鏟肉)/i),
+    reason:
+      "將身材／體重變化與「速度」連結，易使消費者認為無須長期條件即可獲致結果；涉及食品或一般商品時，與不得宣稱醫療減肥療效及誇大之規範意旨衝突。",
+    legalReference:
+      "涉及食品、健康食品或化粧品時，各自有標示與廣告限制；公平交易法亦禁止引人錯誤之表示（意旨整理）。",
+    suggestion:
+      "改為需個人配合之中性節奏描述，避免「快速」與必然身材結果之聯想。",
+    rewrites: {
+      conservative: "刪除「快速／速效」與減重結果之併用；改附警語與生活型態條件。",
+      marketing: "改為「日常節奏中的調整」等敘述。",
+      ecommerce: "主圖短句改營養與運動搭配，不連結速效減重。",
+    },
+    phraseTitle: () => "強調速度與身材結果之連結",
   },
 ];
 
-const RULES = [...RULES_UNSORTED].sort((a, b) => b.match.length - a.match.length);
+function riskTypeLine(label: LegalRiskLabel, tail: string): string {
+  return `【${label}】${tail}`;
+}
 
 export function analyzeTextMock(input: string): AnalysisResult {
   const text = input ?? "";
-  const seen = new Set<string>();
   const findings: AnalysisFinding[] = [];
+  const usedRanges: { start: number; end: number }[] = [];
 
-  for (const rule of RULES) {
-    if (!text.includes(rule.match)) continue;
-    if (seen.has(rule.match)) continue;
-    seen.add(rule.match);
-    const matchedText = rule.match;
+  function overlaps(start: number, end: number): boolean {
+    return usedRanges.some((r) => !(end <= r.start || start >= r.end));
+  }
+
+  for (const rule of CLAIM_RULES) {
+    const matchedText = rule.extract(text);
+    if (!matchedText) continue;
+
+    const idx = text.indexOf(matchedText);
+    if (idx < 0) continue;
+    const end = idx + matchedText.length;
+    if (overlaps(idx, end)) continue;
+    usedRanges.push({ start: idx, end });
+
+    const riskyPhrase = rule.phraseTitle(matchedText);
     findings.push({
-      riskyPhrase: rule.match,
+      riskyPhrase,
       matchedText,
-      spans: mergeFindingsSpans(text, matchedText, rule.match),
+      spans: mergeFindingsSpans(text, matchedText, riskyPhrase),
       category: rule.category,
-      riskType: rule.riskType,
+      riskType: riskTypeLine(
+        rule.riskLabel,
+        rule.category === "醫療效能"
+          ? "宣稱涉及生理或疾病層次之作用，與化粧品／一般商品可得廣告範圍可能不符。"
+          : rule.category === "誤導"
+            ? "表述方式易使一般受眾對效果或機制產生過度具體之聯想。"
+            : "對效果強度或結果之表述可能逾越合理證明與揭露義務。"
+      ),
       severity: rule.severity,
       lawName: rule.lawName,
       article: rule.article,
@@ -197,8 +247,8 @@ export function analyzeTextMock(input: string): AnalysisResult {
 
   const summary =
     findings.length === 0
-      ? "未偵測到預設規則中的高風險關鍵字（仍不代表合規）。"
-      : `偵測到 ${findings.length} 項風險提示，建議逐條檢視並留存佐證資料。`;
+      ? "規則層未偵測到常見之高風險「宣稱型態」（仍不代表合規；建議由模型就整篇文案與產業別完整檢視）。"
+      : `規則層依「宣稱類型」偵測到 ${findings.length} 項可能風險，請對照實際產品類別與證據逐條覆核。`;
 
   return {
     findings,
