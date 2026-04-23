@@ -61,12 +61,16 @@ export async function analyzeWithOpenAI(text: string): Promise<AnalysisResult | 
   });
 
   const raw = completion.choices[0]?.message?.content;
-  if (!raw) return null;
+  if (!raw) {
+    console.error("[analyze] OpenAI returned empty message content");
+    return null;
+  }
 
   let parsed: z.infer<typeof ResponseSchema>;
   try {
     parsed = ResponseSchema.parse(JSON.parse(raw));
-  } catch {
+  } catch (e) {
+    console.error("[analyze] OpenAI JSON parse/schema failed:", e);
     return null;
   }
 

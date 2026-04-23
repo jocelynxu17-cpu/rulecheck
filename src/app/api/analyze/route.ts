@@ -157,10 +157,13 @@ export async function POST(request: Request) {
     }
     let result: AnalysisResult;
     try {
-      result = await runComplianceAnalysis(textIn.trim(), {
+      const t = textIn.trim();
+      console.log("[analyze] guest text", { inputLength: t.length });
+      result = await runComplianceAnalysis(t, {
         guest: true,
         inputKind: "text",
       });
+      console.log("[analyze] guest result", { findingsCount: result.findings.length, source: result.meta?.source });
     } catch (e) {
       console.error("guest analyze:", e);
       return NextResponse.json({ error: "分析失敗" }, { status: 500 });
@@ -195,12 +198,14 @@ export async function POST(request: Request) {
     if (!textIn.trim()) {
       return NextResponse.json({ error: "請提供要檢測的文案。" }, { status: 400 });
     }
+    const textTrim = textIn.trim();
+    console.log("[analyze] text path", { inputLength: textTrim.length });
     const consumed = await consumeWorkspace(supabase, workspaceId, user.id, 1, "text", {
       mode: "text",
     });
     if (!consumed.ok) return consumed.response;
 
-    result = await runComplianceAnalysis(textIn.trim(), {
+    result = await runComplianceAnalysis(textTrim, {
       guest: false,
       plan: wb.plan,
       workspaceMonthlyQuotaUnits: wb.workspaceMonthlyQuotaUnits,
@@ -212,7 +217,11 @@ export async function POST(request: Request) {
       inputKind: "text",
       unitsCharged: 1,
     });
-    result = { ...result, analyzedText: textIn.trim() };
+    result = { ...result, analyzedText: textTrim };
+    console.log("[analyze] text result", {
+      findingsCount: result.findings.length,
+      source: result.meta?.source,
+    });
     inputTextForLog = textIn.slice(0, 50_000);
   } else if (kind === "image") {
     if (!file) {
@@ -229,15 +238,23 @@ export async function POST(request: Request) {
 
     if (trimmedOverride) {
       textForAnalysis = trimmedOverride;
+      console.log("[analyze] image path", { mode: "ocr_edited", ocrTextLength: textForAnalysis.length, fileBytes: file.size });
     } else {
       let ocr: { text: string; confidence: number };
       try {
         ocr = await ocrImageBuffer(buf);
       } catch (e) {
-        console.error("ocr:", e);
+        console.error("[analyze] OCR failure:", e);
         return NextResponse.json({ error: "圖片文字辨識失敗，請改用輸入文字或更清晰的圖檔。" }, { status: 422 });
       }
+      console.log("[analyze] image path", {
+        mode: "ocr",
+        ocrTextLength: ocr.text.length,
+        ocrConfidence: ocr.confidence,
+        fileBytes: file.size,
+      });
       if (!ocr.text.trim()) {
+        console.error("[analyze] OCR returned empty text");
         return NextResponse.json({ error: "無法從圖片辨識出文字。" }, { status: 400 });
       }
       textForAnalysis = ocr.text;
@@ -264,6 +281,10 @@ export async function POST(request: Request) {
       ocrConfidence,
     });
     result = { ...result, analyzedText: textForAnalysis };
+    console.log("[analyze] image analysis done", {
+      findingsCount: result.findings.length,
+      source: result.meta?.source,
+    });
     inputTextForLog = textForAnalysis.slice(0, 50_000);
   } else {
     if (!file) {
@@ -279,12 +300,19 @@ export async function POST(request: Request) {
       const extracted = await extractPdfPages(buf);
       pages = extracted.pages;
       pageCount = pdfUnitsFromPageCount(extracted.pageCount);
+      console.log("[analyze] PDF extracted", {
+        pageCount,
+        pagesReturned: pages.length,
+        firstPageTextLength: pages[0]?.text?.length ?? 0,
+        fileBytes: file.size,
+      });
     } catch (e) {
-      console.error("pdf:", e);
+      console.error("[analyze] PDF parse failure:", e);
       return NextResponse.json({ error: "無法解析 PDF。" }, { status: 422 });
     }
 
     if (!pages.length) {
+      console.error("[analyze] PDF no pages after extract");
       return NextResponse.json({ error: "PDF 無可讀文字。" }, { status: 400 });
     }
 
@@ -332,6 +360,12 @@ export async function POST(request: Request) {
       pageResults.length === 1
         ? pageResults[0].summary
         : `共 ${pageCount} 頁；${riskyPageNumbers.length ? `有風險頁：${riskyPageNumbers.join("、")}` : "未偵測到明顯風險頁（仍不代表整份文件合規）。"}`;
+
+    console.log("[analyze] PDF analysis done", {
+      pageCount,
+      findingsCount: flatFindings.length,
+      pdfEngine,
+    });
 
     result = {
       findings: flatFindings,

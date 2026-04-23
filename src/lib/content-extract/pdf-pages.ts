@@ -1,37 +1,49 @@
+import { PDFParse } from "pdf-parse";
 import type { PdfPageText } from "@/types/analysis";
 
 export const PDF_MAX_PAGES = 50;
 
 /**
- * Extracts text from a PDF buffer. Prefers form-feed page breaks when present;
- * otherwise analyzes as a single segment while still reporting `pageCount` for billing.
+ * 以 pdf-parse v2（PDFParse + pdfjs）擷取每頁文字。
+ * v1「直接呼叫 default(buffer)」與 v2 套件不相容，會導致執行期失敗。
  */
 export async function extractPdfPages(buffer: Buffer): Promise<{
   pages: PdfPageText[];
   pageCount: number;
 }> {
-  const mod = (await import("pdf-parse")) as unknown as Record<string, unknown>;
-  const pdfParse = (typeof mod.default === "function" ? mod.default : mod) as (
-    b: Buffer
-  ) => Promise<{ text: string; numpages?: number }>;
-  const data = await pdfParse(buffer);
-  const pageCount = Math.min(Math.max(data.numpages ?? 1, 1), PDF_MAX_PAGES);
-  const raw = String(data.text ?? "").replace(/\u0000/g, "");
-  const split = raw
-    .split(/\f/)
-    .map((s) => s.replace(/\s+/g, " ").trim())
-    .filter((s) => s.length > 0);
+  const parser = new PDFParse({ data: buffer });
+  try {
+    const textResult = await parser.getText();
+    const totalRaw = textResult.total ?? 0;
+    const totalPages = Math.min(Math.max(totalRaw, 1), PDF_MAX_PAGES);
 
-  let pages: PdfPageText[];
-  if (split.length >= pageCount) {
-    pages = split.slice(0, pageCount).map((text, i) => ({ pageNumber: i + 1, text }));
-  } else if (split.length > 1) {
-    pages = split.map((text, i) => ({ pageNumber: i + 1, text }));
-  } else {
-    pages = [{ pageNumber: 1, text: raw.slice(0, 120_000).trim() || "（無法擷取文字）" }];
+    let pages: PdfPageText[] = (textResult.pages ?? [])
+      .filter((p) => p.num <= PDF_MAX_PAGES)
+      .map((p) => ({
+        pageNumber: p.num,
+        text: String(p.text ?? "")
+          .replace(/\u0000/g, "")
+          .replace(/\s+/g, " ")
+          .trim() || " ",
+      }));
+
+    if (!pages.length && String(textResult.text ?? "").trim()) {
+      const flat = String(textResult.text)
+        .replace(/\u0000/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      pages = [{ pageNumber: 1, text: flat.slice(0, 120_000) || " " }];
+    }
+
+    if (!pages.length) {
+      throw new Error("pdf_no_extractable_pages");
+    }
+
+    const pageCount = pdfUnitsFromPageCount(totalPages);
+    return { pages, pageCount };
+  } finally {
+    await parser.destroy().catch(() => undefined);
   }
-
-  return { pages, pageCount };
 }
 
 export function pdfUnitsFromPageCount(n: number): number {

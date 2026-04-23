@@ -35,12 +35,13 @@ export async function POST(request: Request) {
   const buf = Buffer.from(await f.arrayBuffer());
   try {
     const ocr = await ocrImageBuffer(buf);
+    console.log("[analyze] ocr-preview", { ocrTextLength: ocr.text.length, confidence: ocr.confidence, fileBytes: f.size });
     return NextResponse.json({
       text: ocr.text,
       confidence: ocr.confidence,
     });
   } catch (e) {
-    console.error("ocr-preview:", e);
+    console.error("[analyze] ocr-preview failure:", e);
     return NextResponse.json({ error: "圖片文字辨識失敗，請改用更清晰的圖檔。" }, { status: 422 });
   }
 }
