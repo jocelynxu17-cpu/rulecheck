@@ -2,9 +2,10 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { runComplianceAnalysis } from "@/lib/analyze/run-compliance";
-import { IMAGE_MAX_BYTES, ocrImageBuffer, PDF_MAX_BYTES } from "@/lib/content-extract/image-ocr";
+import { analyzeTextMock } from "@/lib/analyzer-mock";
+import { IMAGE_MAX_BYTES, PDF_MAX_BYTES } from "@/lib/analyze/input-limits";
 import { resolveWorkspaceForUser } from "@/lib/workspace/resolve-workspace";
-import type { AnalysisInputKind, AnalysisResult, PdfPageAnalysis } from "@/types/analysis";
+import type { AnalysisInputKind, AnalysisMeta, AnalysisResult, PdfPageAnalysis } from "@/types/analysis";
 import { normalizeAnalysisResult } from "@/lib/analysis-normalize";
 import { GUEST_ANALYSIS_COOKIE } from "@/lib/constants";
 
@@ -104,7 +105,43 @@ async function consumeWorkspace(
   return { ok: true as const, remaining };
 }
 
+function errPayload(message: string, code: string, details?: Record<string, unknown>) {
+  return { error: message, code, ...(details ? { details } : {}) };
+}
+
+/** Only if `runComplianceAnalysis` throws (e.g. normalize); OpenAI failure is handled inside that pipeline. */
+function ruleOnlyFallback(text: string, metaPatch: Partial<AnalysisMeta>): AnalysisResult {
+  const raw = analyzeTextMock(text);
+  const normalized = normalizeAnalysisResult(raw, text);
+  return { ...normalized, meta: { ...normalized.meta, ...metaPatch } };
+}
+
+function logCaught(prefix: string, e: unknown) {
+  const err = e instanceof Error ? e : new Error(String(e));
+  console.error(prefix, {
+    message: err.message,
+    name: err.name,
+    stack: err.stack ?? "",
+  });
+}
+
 export async function POST(request: Request) {
+  try {
+    return await postAnalyze(request);
+  } catch (e) {
+    logCaught("[analyze] uncaught (returning JSON)", e);
+    const err = e instanceof Error ? e : new Error(String(e));
+    return NextResponse.json(
+      errPayload("分析請求處理失敗", "INTERNAL_ERROR", {
+        message: err.message,
+        stack: err.stack?.slice(0, 1200) ?? "",
+      }),
+      { status: 500 }
+    );
+  }
+}
+
+async function postAnalyze(request: Request) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -157,15 +194,26 @@ export async function POST(request: Request) {
     let result: AnalysisResult;
     try {
       const t = textIn.trim();
-      console.log("[analyze] guest text", { inputLength: t.length });
-      result = await runComplianceAnalysis(t, {
-        guest: true,
-        inputKind: "text",
+      console.log("[analyze] branch", { kind, branch: "guest_text", inputLength: t.length });
+      try {
+        result = await runComplianceAnalysis(t, { guest: true, inputKind: "text" });
+      } catch (e) {
+        logCaught("[analyze] guest GPT pipeline threw, rule-only fallback", e);
+        result = ruleOnlyFallback(t, { guest: true, inputKind: "text" });
+      }
+      console.log("[analyze] guest result", {
+        findingsCount: result.findings.length,
+        source: result.meta?.source,
       });
-      console.log("[analyze] guest result", { findingsCount: result.findings.length, source: result.meta?.source });
     } catch (e) {
-      console.error("guest analyze:", e);
-      return NextResponse.json({ error: "分析失敗" }, { status: 500 });
+      logCaught("[analyze] guest text failure", e);
+      return NextResponse.json(
+        errPayload("文字分析失敗", "GUEST_TEXT_FAILED", {
+          message: e instanceof Error ? e.message : String(e),
+          stack: e instanceof Error ? e.stack : undefined,
+        }),
+        { status: 500 }
+      );
     }
     const normalized = normalizeAnalysisResult(result, textIn);
     const res = NextResponse.json(normalized);
@@ -201,230 +249,346 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "請提供要檢測的文案。" }, { status: 400 });
     }
     const textTrim = textIn.trim();
-    console.log("[analyze] text path", { inputLength: textTrim.length });
-    const consumed = await consumeWorkspace(supabase, workspaceId, user.id, 1, "text", {
-      mode: "text",
-    });
-    if (!consumed.ok) return consumed.response;
-
-    result = await runComplianceAnalysis(textTrim, {
-      guest: false,
-      plan: wb.plan,
-      workspaceMonthlyQuotaUnits: wb.workspaceMonthlyQuotaUnits,
-      workspaceSubscriptionStatus: wb.workspaceSubscriptionStatus,
-      workspaceBillingProvider: wb.workspaceBillingProvider,
-      quotaRemaining: consumed.remaining,
-      workspaceId,
-      workspaceName: wb.workspaceName,
-      inputKind: "text",
-      unitsCharged: 1,
-    });
-    result = { ...result, analyzedText: textTrim };
-    console.log("[analyze] text result", {
-      findingsCount: result.findings.length,
-      source: result.meta?.source,
-    });
-    inputTextForLog = textIn.slice(0, 50_000);
-  } else if (kind === "image") {
-    if (!file) {
-      return NextResponse.json({ error: "請上傳圖片檔。" }, { status: 400 });
-    }
-    if (file.size > IMAGE_MAX_BYTES) {
-      return NextResponse.json({ error: "圖片檔過大（上限 10MB）。" }, { status: 400 });
-    }
-    const buf = Buffer.from(await file.arrayBuffer());
-
-    let textForAnalysis: string;
-    let ocrConfidence: number | null = null;
-    const trimmedOverride = ocrTextOverride.trim();
-
-    if (trimmedOverride) {
-      textForAnalysis = trimmedOverride;
-      logOcrTextLength = textForAnalysis.length;
-      console.log("[analyze] image path", { mode: "ocr_edited", ocrTextLength: textForAnalysis.length, fileBytes: file.size });
-    } else {
-      let ocr: { text: string; confidence: number };
-      try {
-        ocr = await ocrImageBuffer(buf);
-      } catch (e) {
-        console.error("[analyze] OCR failure:", e);
-        return NextResponse.json({ error: "圖片文字辨識失敗，請改用輸入文字或更清晰的圖檔。" }, { status: 422 });
-      }
-      console.log("[analyze] image path", {
-        mode: "ocr",
-        ocrTextLength: ocr.text.length,
-        ocrConfidence: ocr.confidence,
-        fileBytes: file.size,
-      });
-      if (!ocr.text.trim()) {
-        console.error("[analyze] OCR returned empty text");
-        return NextResponse.json({ error: "無法從圖片辨識出文字。" }, { status: 400 });
-      }
-      textForAnalysis = ocr.text;
-      ocrConfidence = ocr.confidence;
-      logOcrTextLength = textForAnalysis.length;
-    }
-
-    const consumed = await consumeWorkspace(supabase, workspaceId, user.id, 1, "image", {
-      mode: trimmedOverride ? "ocr_edited" : "ocr",
-      bytes: file.size,
-    });
-    if (!consumed.ok) return consumed.response;
-
-    result = await runComplianceAnalysis(textForAnalysis, {
-      guest: false,
-      plan: wb.plan,
-      workspaceMonthlyQuotaUnits: wb.workspaceMonthlyQuotaUnits,
-      workspaceSubscriptionStatus: wb.workspaceSubscriptionStatus,
-      workspaceBillingProvider: wb.workspaceBillingProvider,
-      quotaRemaining: consumed.remaining,
-      workspaceId,
-      workspaceName: wb.workspaceName,
-      inputKind: "image",
-      unitsCharged: 1,
-      ocrConfidence,
-    });
-    result = { ...result, analyzedText: textForAnalysis };
-    console.log("[analyze] image analysis done", {
-      findingsCount: result.findings.length,
-      source: result.meta?.source,
-    });
-    inputTextForLog = textForAnalysis.slice(0, 50_000);
-  } else {
-    if (!file) {
-      return NextResponse.json({ error: "請上傳 PDF。" }, { status: 400 });
-    }
-    if (file.size > PDF_MAX_BYTES) {
-      return NextResponse.json({ error: "PDF 檔過大（上限 20MB）。" }, { status: 400 });
-    }
-    const buf = Buffer.from(await file.arrayBuffer());
-    let pages: { pageNumber: number; text: string }[];
-    let pageCount: number;
+    console.log("[analyze] branch", { kind, branch: "text", inputLength: textTrim.length });
     try {
-      const { extractPdfPages, pdfUnitsFromPageCount } = await import("@/lib/content-extract/pdf-pages");
-      const extracted = await extractPdfPages(buf);
-      pages = extracted.pages;
-      pageCount = pdfUnitsFromPageCount(extracted.pageCount);
-      logPdfExtractedPages = pages.length;
-      console.log("[analyze] PDF extracted", {
-        pageCount,
-        pagesReturned: pages.length,
-        firstPageTextLength: pages[0]?.text?.length ?? 0,
-        fileBytes: file.size,
+      const consumed = await consumeWorkspace(supabase, workspaceId, user.id, 1, "text", {
+        mode: "text",
+      });
+      if (!consumed.ok) return consumed.response;
+
+      try {
+        result = await runComplianceAnalysis(textTrim, {
+          guest: false,
+          plan: wb.plan,
+          workspaceMonthlyQuotaUnits: wb.workspaceMonthlyQuotaUnits,
+          workspaceSubscriptionStatus: wb.workspaceSubscriptionStatus,
+          workspaceBillingProvider: wb.workspaceBillingProvider,
+          quotaRemaining: consumed.remaining,
+          workspaceId,
+          workspaceName: wb.workspaceName,
+          inputKind: "text",
+          unitsCharged: 1,
+        });
+      } catch (e) {
+        logCaught("[analyze] text GPT pipeline threw, rule-only fallback", e);
+        result = ruleOnlyFallback(textTrim, {
+          guest: false,
+          plan: wb.plan,
+          workspaceMonthlyQuotaUnits: wb.workspaceMonthlyQuotaUnits,
+          workspaceSubscriptionStatus: wb.workspaceSubscriptionStatus,
+          workspaceBillingProvider: wb.workspaceBillingProvider,
+          quotaRemaining: consumed.remaining,
+          workspaceId,
+          workspaceName: wb.workspaceName,
+          inputKind: "text",
+          unitsCharged: 1,
+        });
+      }
+      result = { ...result, analyzedText: textTrim };
+      console.log("[analyze] text result", {
+        findingsCount: result.findings.length,
+        source: result.meta?.source,
       });
     } catch (e) {
-      const err = e instanceof Error ? e : new Error(String(e));
-      console.error("[analyze] PDF parse failure", {
-        message: err.message,
-        name: err.name,
-        stack: err.stack?.slice(0, 800),
-        cause: err.cause,
-      });
-      return NextResponse.json({ error: "無法解析 PDF。" }, { status: 422 });
+      logCaught("[analyze] text branch failure", e);
+      return NextResponse.json(
+        errPayload("文字分析失敗", "TEXT_ANALYSIS_FAILED", {
+          message: e instanceof Error ? e.message : String(e),
+          stack: e instanceof Error ? e.stack : undefined,
+        }),
+        { status: 500 }
+      );
     }
+    inputTextForLog = textIn.slice(0, 50_000);
+  } else if (kind === "image") {
+    console.log("[analyze] branch", { kind, branch: "image" });
+    try {
+      if (!file) {
+        return NextResponse.json(errPayload("請上傳圖片檔。", "IMAGE_NO_FILE"), { status: 400 });
+      }
+      if (file.size > IMAGE_MAX_BYTES) {
+        return NextResponse.json(errPayload("圖片檔過大（上限 10MB）。", "IMAGE_TOO_LARGE"), { status: 400 });
+      }
+      const buf = Buffer.from(await file.arrayBuffer());
 
-    if (!pages.length) {
-      console.error("[analyze] PDF no pages after extract");
-      return NextResponse.json({ error: "PDF 無可讀文字。" }, { status: 400 });
-    }
+      let textForAnalysis: string;
+      let ocrConfidence: number | null = null;
+      const trimmedOverride = ocrTextOverride.trim();
 
-    units = pageCount;
-    pdfPageCount = pageCount;
+      if (trimmedOverride) {
+        textForAnalysis = trimmedOverride;
+        logOcrTextLength = textForAnalysis.length;
+        console.log("[analyze] image path", { mode: "ocr_edited", ocrTextLength: textForAnalysis.length, fileBytes: file.size });
+      } else {
+        let ocrMod: typeof import("@/lib/content-extract/image-ocr");
+        try {
+          ocrMod = await import("@/lib/content-extract/image-ocr");
+        } catch (e) {
+          logCaught("[analyze] image OCR module load failed", e);
+          return NextResponse.json(
+            errPayload("圖片辨識模組暫時無法載入，請稍後再試或改用純文字檢測。", "IMAGE_MODULE_LOAD_FAILED", {
+              message: e instanceof Error ? e.message : String(e),
+              stack: e instanceof Error ? e.stack : undefined,
+            }),
+            { status: 503 }
+          );
+        }
+        let ocr: { text: string; confidence: number };
+        try {
+          ocr = await ocrMod.ocrImageBuffer(buf);
+        } catch (e) {
+          logCaught("[analyze] OCR failure", e);
+          return NextResponse.json(
+            errPayload("圖片文字辨識失敗，請改用輸入文字或更清晰的圖檔。", "IMAGE_OCR_FAILED", {
+              message: e instanceof Error ? e.message : String(e),
+              stack: e instanceof Error ? e.stack : undefined,
+            }),
+            { status: 422 }
+          );
+        }
+        console.log("[analyze] image path", {
+          mode: "ocr",
+          ocrTextLength: ocr.text.length,
+          ocrConfidence: ocr.confidence,
+          fileBytes: file.size,
+        });
+        if (!ocr.text.trim()) {
+          console.error("[analyze] OCR returned empty text");
+          return NextResponse.json(
+            errPayload("無法從圖片辨識出文字。", "IMAGE_OCR_EMPTY"),
+            { status: 400 }
+          );
+        }
+        textForAnalysis = ocr.text;
+        ocrConfidence = ocr.confidence;
+        logOcrTextLength = textForAnalysis.length;
+      }
 
-    const consumed = await consumeWorkspace(supabase, workspaceId, user.id, units, "pdf", {
-      pages: pageCount,
-      file: file.name,
-    });
-    if (!consumed.ok) return consumed.response;
-
-    const pageResults: PdfPageAnalysis[] = [];
-    const riskyPageNumbers: number[] = [];
-    const flatFindings: AnalysisResult["findings"] = [];
-    let pdfEngine: "openai" | "mock" = "mock";
-
-    for (const p of pages) {
-      const pageAnalysis = await runComplianceAnalysis(p.text, {
-        guest: false,
-        plan: wb.plan,
-        workspaceMonthlyQuotaUnits: wb.workspaceMonthlyQuotaUnits,
-        workspaceSubscriptionStatus: wb.workspaceSubscriptionStatus,
-        workspaceBillingProvider: wb.workspaceBillingProvider,
-        quotaRemaining: consumed.remaining,
-        workspaceId,
-        workspaceName: wb.workspaceName,
-        inputKind: "pdf",
-        unitsCharged: units,
+      const consumed = await consumeWorkspace(supabase, workspaceId, user.id, 1, "image", {
+        mode: trimmedOverride ? "ocr_edited" : "ocr",
+        bytes: file.size,
       });
-      if (pageAnalysis.meta.source === "openai") pdfEngine = "openai";
-      const hasRisk = pageAnalysis.findings.length > 0;
-      if (hasRisk) riskyPageNumbers.push(p.pageNumber);
-      flatFindings.push(...pageAnalysis.findings);
-      pageResults.push({
-        pageNumber: p.pageNumber,
-        text: p.text,
-        findings: pageAnalysis.findings,
-        summary: pageAnalysis.summary,
-        hasRisk,
+      if (!consumed.ok) return consumed.response;
+
+      try {
+        result = await runComplianceAnalysis(textForAnalysis, {
+          guest: false,
+          plan: wb.plan,
+          workspaceMonthlyQuotaUnits: wb.workspaceMonthlyQuotaUnits,
+          workspaceSubscriptionStatus: wb.workspaceSubscriptionStatus,
+          workspaceBillingProvider: wb.workspaceBillingProvider,
+          quotaRemaining: consumed.remaining,
+          workspaceId,
+          workspaceName: wb.workspaceName,
+          inputKind: "image",
+          unitsCharged: 1,
+          ocrConfidence,
+        });
+      } catch (e) {
+        logCaught("[analyze] image GPT pipeline threw, rule-only fallback", e);
+        result = ruleOnlyFallback(textForAnalysis, {
+          guest: false,
+          plan: wb.plan,
+          workspaceMonthlyQuotaUnits: wb.workspaceMonthlyQuotaUnits,
+          workspaceSubscriptionStatus: wb.workspaceSubscriptionStatus,
+          workspaceBillingProvider: wb.workspaceBillingProvider,
+          quotaRemaining: consumed.remaining,
+          workspaceId,
+          workspaceName: wb.workspaceName,
+          inputKind: "image",
+          unitsCharged: 1,
+          ocrConfidence,
+        });
+      }
+      result = { ...result, analyzedText: textForAnalysis };
+      console.log("[analyze] image analysis done", {
+        findingsCount: result.findings.length,
+        source: result.meta?.source,
       });
+      inputTextForLog = textForAnalysis.slice(0, 50_000);
+    } catch (e) {
+      logCaught("[analyze] image branch failure", e);
+      return NextResponse.json(
+        errPayload("圖片分析失敗", "IMAGE_ANALYSIS_FAILED", {
+          message: e instanceof Error ? e.message : String(e),
+          stack: e instanceof Error ? e.stack : undefined,
+        }),
+        { status: 500 }
+      );
     }
+  } else {
+    console.log("[analyze] branch", { kind, branch: "pdf" });
+    try {
+      if (!file) {
+        return NextResponse.json(errPayload("請上傳 PDF。", "PDF_NO_FILE"), { status: 400 });
+      }
+      if (file.size > PDF_MAX_BYTES) {
+        return NextResponse.json(errPayload("PDF 檔過大（上限 20MB）。", "PDF_TOO_LARGE"), { status: 400 });
+      }
+      const buf = Buffer.from(await file.arrayBuffer());
+      let pages: { pageNumber: number; text: string }[];
+      let pageCount: number;
+      try {
+        const { extractPdfPages, pdfUnitsFromPageCount } = await import("@/lib/content-extract/pdf-pages");
+        const extracted = await extractPdfPages(buf);
+        pages = extracted.pages;
+        pageCount = pdfUnitsFromPageCount(extracted.pageCount);
+        logPdfExtractedPages = pages.length;
+        console.log("[analyze] PDF extracted", {
+          pageCount,
+          pagesReturned: pages.length,
+          firstPageTextLength: pages[0]?.text?.length ?? 0,
+          fileBytes: file.size,
+        });
+      } catch (e) {
+        logCaught("[analyze] PDF parse failure", e);
+        const err = e instanceof Error ? e : new Error(String(e));
+        return NextResponse.json(
+          errPayload("PDF 解析暫時不可用，請改匯出純文字或圖片後再試。", "PDF_PARSE_UNAVAILABLE", {
+            message: err.message,
+            stack: err.stack?.slice(0, 1200) ?? "",
+            name: err.name,
+          }),
+          { status: 503 }
+        );
+      }
 
-    const summary =
-      pageResults.length === 1
-        ? pageResults[0].summary
-        : `共 ${pageCount} 頁；${riskyPageNumbers.length ? `有風險頁：${riskyPageNumbers.join("、")}` : "未偵測到明顯風險頁（仍不代表整份文件合規）。"}`;
+      if (!pages.length) {
+        console.error("[analyze] PDF no pages after extract");
+        return NextResponse.json(errPayload("PDF 無可讀文字。", "PDF_NO_TEXT"), { status: 400 });
+      }
 
-    console.log("[analyze] PDF analysis done", {
-      pageCount,
-      findingsCount: flatFindings.length,
-      pdfEngine,
-    });
+      units = pageCount;
+      pdfPageCount = pageCount;
 
-    result = {
-      findings: flatFindings,
-      summary,
-      scannedAt: new Date().toISOString(),
-      meta: {
-        source: pdfEngine,
-        guest: false,
-        plan: wb.plan,
-        workspaceMonthlyQuotaUnits: wb.workspaceMonthlyQuotaUnits,
-        workspaceSubscriptionStatus: wb.workspaceSubscriptionStatus,
-        workspaceBillingProvider: wb.workspaceBillingProvider,
-        quotaRemaining: consumed.remaining,
-        workspaceId,
-        workspaceName: wb.workspaceName,
-        inputKind: "pdf",
-        unitsCharged: units,
-      },
-      pdfReport: {
+      const consumed = await consumeWorkspace(supabase, workspaceId, user.id, units, "pdf", {
+        pages: pageCount,
+        file: file.name,
+      });
+      if (!consumed.ok) return consumed.response;
+
+      const pageResults: PdfPageAnalysis[] = [];
+      const riskyPageNumbers: number[] = [];
+      const flatFindings: AnalysisResult["findings"] = [];
+      let pdfEngine: "openai" | "mock" = "mock";
+
+      for (const p of pages) {
+        let pageAnalysis: AnalysisResult;
+        try {
+          pageAnalysis = await runComplianceAnalysis(p.text, {
+            guest: false,
+            plan: wb.plan,
+            workspaceMonthlyQuotaUnits: wb.workspaceMonthlyQuotaUnits,
+            workspaceSubscriptionStatus: wb.workspaceSubscriptionStatus,
+            workspaceBillingProvider: wb.workspaceBillingProvider,
+            quotaRemaining: consumed.remaining,
+            workspaceId,
+            workspaceName: wb.workspaceName,
+            inputKind: "pdf",
+            unitsCharged: units,
+          });
+        } catch (e) {
+          logCaught(`[analyze] PDF page ${p.pageNumber} GPT pipeline threw, rule-only fallback`, e);
+          pageAnalysis = ruleOnlyFallback(p.text, {
+            guest: false,
+            plan: wb.plan,
+            workspaceMonthlyQuotaUnits: wb.workspaceMonthlyQuotaUnits,
+            workspaceSubscriptionStatus: wb.workspaceSubscriptionStatus,
+            workspaceBillingProvider: wb.workspaceBillingProvider,
+            quotaRemaining: consumed.remaining,
+            workspaceId,
+            workspaceName: wb.workspaceName,
+            inputKind: "pdf",
+            unitsCharged: units,
+          });
+        }
+        if (pageAnalysis.meta.source === "openai") pdfEngine = "openai";
+        const hasRisk = pageAnalysis.findings.length > 0;
+        if (hasRisk) riskyPageNumbers.push(p.pageNumber);
+        flatFindings.push(...pageAnalysis.findings);
+        pageResults.push({
+          pageNumber: p.pageNumber,
+          text: p.text,
+          findings: pageAnalysis.findings,
+          summary: pageAnalysis.summary,
+          hasRisk,
+        });
+      }
+
+      const summary =
+        pageResults.length === 1
+          ? pageResults[0].summary
+          : `共 ${pageCount} 頁；${riskyPageNumbers.length ? `有風險頁：${riskyPageNumbers.join("、")}` : "未偵測到明顯風險頁（仍不代表整份文件合規）。"}`;
+
+      console.log("[analyze] PDF analysis done", {
         pageCount,
-        pages: pageResults,
-        riskyPageNumbers,
-      },
-    };
-    inputTextForLog = `[PDF ${file.name} ${pageCount}頁] ${pages[0]?.text?.slice(0, 500) ?? ""}`;
+        findingsCount: flatFindings.length,
+        pdfEngine,
+      });
+
+      result = {
+        findings: flatFindings,
+        summary,
+        scannedAt: new Date().toISOString(),
+        meta: {
+          source: pdfEngine,
+          guest: false,
+          plan: wb.plan,
+          workspaceMonthlyQuotaUnits: wb.workspaceMonthlyQuotaUnits,
+          workspaceSubscriptionStatus: wb.workspaceSubscriptionStatus,
+          workspaceBillingProvider: wb.workspaceBillingProvider,
+          quotaRemaining: consumed.remaining,
+          workspaceId,
+          workspaceName: wb.workspaceName,
+          inputKind: "pdf",
+          unitsCharged: units,
+        },
+        pdfReport: {
+          pageCount,
+          pages: pageResults,
+          riskyPageNumbers,
+        },
+      };
+      inputTextForLog = `[PDF ${file.name} ${pageCount}頁] ${pages[0]?.text?.slice(0, 500) ?? ""}`;
+    } catch (e) {
+      logCaught("[analyze] PDF branch failure", e);
+      const err = e instanceof Error ? e : new Error(String(e));
+      return NextResponse.json(
+        errPayload("PDF 分析失敗", "PDF_ANALYSIS_FAILED", {
+          message: err.message,
+          stack: err.stack?.slice(0, 1200) ?? "",
+        }),
+        { status: 500 }
+      );
+    }
   }
 
   const normalized: AnalysisResult = kind === "pdf" ? normalizeAnalysisResult(result, inputTextForLog) : result;
 
+  const branch = kind === "text" ? "text" : kind === "image" ? "image" : "pdf";
   console.log("[analyze] pipeline", {
     kind,
+    branch,
     source: normalized.meta?.source ?? null,
     ocrTextLength: logOcrTextLength,
     pdfExtractedPageCount: logPdfExtractedPages,
     findingsCount: normalized.findings.length,
   });
 
-  const { error: logError } = await supabase.from("analysis_logs").insert({
-    user_id: user.id,
-    workspace_id: workspaceId,
-    input_text: inputTextForLog,
-    input_type: kind,
-    units_charged: units,
-    pdf_page_count: pdfPageCount,
-    result: normalized as unknown as Record<string, unknown>,
-  });
-  if (logError) console.error("analysis_logs insert:", logError.message);
+  try {
+    const { error: logError } = await supabase.from("analysis_logs").insert({
+      user_id: user.id,
+      workspace_id: workspaceId,
+      input_text: inputTextForLog,
+      input_type: kind,
+      units_charged: units,
+      pdf_page_count: pdfPageCount,
+      result: normalized as unknown as Record<string, unknown>,
+    });
+    if (logError) console.error("[analyze] analysis_logs insert:", logError.message);
+  } catch (e) {
+    logCaught("[analyze] analysis_logs insert threw", e);
+  }
 
   return NextResponse.json(normalized);
 }
