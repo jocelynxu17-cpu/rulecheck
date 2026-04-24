@@ -123,6 +123,12 @@ export function AnalyzeView() {
   const [ocrBusy, setOcrBusy] = useState(false);
   const [ocrProgress, setOcrProgress] = useState<number | null>(null);
   const [ocrClientError, setOcrClientError] = useState<{ code: string; message: string } | null>(null);
+  /** 多軌 OCR 品質提示（繁中） */
+  const [ocrQualityBanner, setOcrQualityBanner] = useState<{
+    variant: "warn" | "caution";
+    message: string;
+    passHint: string;
+  } | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -167,6 +173,7 @@ export function AnalyzeView() {
     }
     setOcrBusy(true);
     setOcrClientError(null);
+    setOcrQualityBanner(null);
     setOcrProgress(0);
     const ocrMod = await import("@/lib/ocr/browser-ocr");
     try {
@@ -198,8 +205,29 @@ export function AnalyzeView() {
       );
       const pct = formatOcrPercent(detailed.confidence, detailed.confidencePercent);
       const tierLabel = ocrConfidenceTier(detailed.confidence);
+      const bp = detailed.browserPipeline;
+      const passHint = bp
+        ? bp.selectedPass === "original"
+          ? "本次採用：原圖辨識（與預處理／補強軌比選後較佳）。"
+          : bp.selectedPass === "preprocessed"
+            ? "本次採用：預處理增強後圖像辨識（放大、灰階、對比等；預覽仍為原圖）。"
+            : `本次採用：稀疏版面補強辨識（${bp.sparseUsedPreprocessed ? "預處理圖" : "原圖"}）。`
+        : "";
+      if (bp?.qualityWarningZh) {
+        setOcrQualityBanner({ variant: "warn", message: bp.qualityWarningZh, passHint });
+      } else if (bp?.qualityCautionZh) {
+        setOcrQualityBanner({ variant: "caution", message: bp.qualityCautionZh, passHint });
+      } else {
+        setOcrQualityBanner(null);
+      }
+      const extra =
+        bp?.qualityWarningZh != null
+          ? ` ${bp.qualityWarningZh}`
+          : bp?.qualityCautionZh != null
+            ? ` ${bp.qualityCautionZh}`
+            : "";
       toast.success("已於瀏覽器擷取圖片文字", {
-        description: `辨識信心 ${pct}（${tierLabel}）。請確認下方文字後再送交檢測；伺服器不會再執行 OCR。`,
+        description: `${passHint ? `${passHint} ` : ""}辨識信心 ${pct}（${tierLabel}）。語系：繁中＋簡中＋英文，多軌比選最佳結果。請確認下方文字後再送交檢測。${extra}`.trim(),
       });
     } catch (e) {
       const err = ocrMod.formatBrowserOcrError(e);
@@ -419,6 +447,7 @@ export function AnalyzeView() {
                   setImageOcrBlocks(null);
                   setOcrClientError(null);
                   setOcrProgress(null);
+                  setOcrQualityBanner(null);
                 }}
               />
               <p className="text-xs leading-relaxed text-ink-secondary">
@@ -431,6 +460,23 @@ export function AnalyzeView() {
                   <p className="font-medium">瀏覽器辨識失敗</p>
                   <p className="mt-1 text-xs text-red-900/90">{ocrClientError.message}</p>
                   <p className="mt-1 text-[11px] text-red-800/80">代碼：{ocrClientError.code}</p>
+                </div>
+              ) : null}
+
+              {ocrQualityBanner ? (
+                <div
+                  className={
+                    ocrQualityBanner.variant === "warn"
+                      ? "rounded-lg border border-amber-300/90 bg-amber-50/95 px-3 py-2.5 text-sm text-amber-950"
+                      : "rounded-lg border border-zinc-200 bg-zinc-50/95 px-3 py-2.5 text-sm text-zinc-900"
+                  }
+                >
+                  {ocrQualityBanner.message ? (
+                    <p className="font-medium leading-relaxed text-ink">{ocrQualityBanner.message}</p>
+                  ) : null}
+                  <p className={ocrQualityBanner.message ? "mt-1.5 text-xs leading-relaxed text-ink-secondary" : "text-xs leading-relaxed text-ink-secondary"}>
+                    {ocrQualityBanner.passHint}
+                  </p>
                 </div>
               ) : null}
 

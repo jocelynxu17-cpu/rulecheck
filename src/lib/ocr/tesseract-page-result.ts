@@ -21,6 +21,23 @@ export type OcrBlockSnippet = {
   lines: OcrLineSnippet[];
 };
 
+/** 瀏覽器多軌 OCR 之中繼資料（伺服器 OCR 通常不填） */
+export type OcrBrowserPipelineMeta = {
+  langsTried: string;
+  /** 入選之辨識軌：原圖、預處理圖，或 SPARSE 補強軌（影像來源見 sparseUsedPreprocessed） */
+  selectedPass: "original" | "preprocessed" | "sparse";
+  /** 僅當 selectedPass 為 sparse：是否對預處理圖執行（否則為原圖） */
+  sparseUsedPreprocessed?: boolean;
+  preprocessApplied: boolean;
+  sparsePassUsed: boolean;
+  qualityLevel: "poor" | "fair" | "good";
+  qualityReasons: string[];
+  /** 品質明顯不佳時之繁中警示 */
+  qualityWarningZh?: string;
+  /** 尚可但建議複核 */
+  qualityCautionZh?: string;
+};
+
 export type OcrDetailedResult = {
   text: string;
   /** 整頁代表信心 0–1（有文字之行的行級信心平均；無行則 page.confidence） */
@@ -28,6 +45,8 @@ export type OcrDetailedResult = {
   confidencePercent: number;
   blocks: OcrBlockSnippet[];
   lines: OcrLineSnippet[];
+  /** 僅瀏覽器 OCR：多軌挑選與品質提示 */
+  browserPipeline?: OcrBrowserPipelineMeta;
 };
 
 function lineToSnippet(line: Line): OcrLineSnippet {

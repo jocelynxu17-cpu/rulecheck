@@ -26,15 +26,15 @@ async function recognizeWithLangs(buffer: Buffer, langs: string): Promise<OcrDet
       data: page,
     } = await worker.recognize(buffer, {}, { blocks: true } as Parameters<typeof worker.recognize>[2]);
 
-    return pageToDetailed(page, 120);
+    return pageToDetailed(page, 420);
   } finally {
     await worker.terminate();
   }
 }
 
 /**
- * 圖片 OCR（繁中 + 英文）。Node 環境需關閉 workerBlobURL 並指定 worker／core 路徑。
- * 若 chi_tra+eng 失敗，會退回僅 eng。
+ * 圖片 OCR（繁中 + 簡中 + 英文）。Node 環境需關閉 workerBlobURL 並指定 worker／core 路徑。
+ * 若 chi_tra+chi_sim+eng 失敗則 chi_tra+eng，再失敗則僅 eng。
  * 主要供未帶客戶端 ocrText 之後援；正式流程應以瀏覽器 OCR 為主。
  */
 export async function ocrImageBuffer(buffer: Buffer): Promise<{ text: string; confidence: number }> {
@@ -45,10 +45,15 @@ export async function ocrImageBuffer(buffer: Buffer): Promise<{ text: string; co
 /** 完整 OCR（僅伺服器／除錯用）。 */
 export async function ocrImageBufferDetailed(buffer: Buffer): Promise<OcrDetailedResult> {
   try {
-    return await recognizeWithLangs(buffer, "chi_tra+eng");
+    return await recognizeWithLangs(buffer, "chi_tra+chi_sim+eng");
   } catch (e) {
-    console.error("[ocr] chi_tra+eng failed, retrying eng only:", e);
-    return await recognizeWithLangs(buffer, "eng");
+    console.error("[ocr] chi_tra+chi_sim+eng failed, retrying chi_tra+eng:", e);
+    try {
+      return await recognizeWithLangs(buffer, "chi_tra+eng");
+    } catch (e2) {
+      console.error("[ocr] chi_tra+eng failed, retrying eng only:", e2);
+      return await recognizeWithLangs(buffer, "eng");
+    }
   }
 }
 
