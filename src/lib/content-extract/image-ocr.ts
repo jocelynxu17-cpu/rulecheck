@@ -1,6 +1,7 @@
 import path from "path";
 import Tesseract from "tesseract.js";
 import { pageToDetailed, type OcrDetailedResult } from "@/lib/ocr/tesseract-page-result";
+import { detectHanScriptSummary } from "@/lib/ocr/ocr-han-script";
 
 export type { OcrDetailedResult, OcrLineSnippet, OcrBlockSnippet } from "@/lib/ocr/tesseract-page-result";
 export { normalizeOcrConfidence } from "@/lib/ocr/tesseract-page-result";
@@ -26,7 +27,11 @@ async function recognizeWithLangs(buffer: Buffer, langs: string): Promise<OcrDet
       data: page,
     } = await worker.recognize(buffer, {}, { blocks: true } as Parameters<typeof worker.recognize>[2]);
 
-    return pageToDetailed(page, 420);
+    const detailed = pageToDetailed(page, 420);
+    return {
+      ...detailed,
+      hanScript: detectHanScriptSummary(detailed.text),
+    };
   } finally {
     await worker.terminate();
   }

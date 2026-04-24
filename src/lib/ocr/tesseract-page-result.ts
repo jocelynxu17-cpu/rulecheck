@@ -1,4 +1,7 @@
 import type { Line, Page } from "tesseract.js";
+import type { OcrHanScriptMeta } from "@/lib/ocr/ocr-han-script";
+
+export type { OcrHanScriptMeta } from "@/lib/ocr/ocr-han-script";
 
 /** Tesseract 常回傳 0–100；統一為 0–1 供 API／UI 一致使用。 */
 export function normalizeOcrConfidence(raw: number): number {
@@ -47,6 +50,8 @@ export type OcrDetailedResult = {
   lines: OcrLineSnippet[];
   /** 僅瀏覽器 OCR：多軌挑選與品質提示 */
   browserPipeline?: OcrBrowserPipelineMeta;
+  /** 依對照字統計之字形摘要（不改正文、不轉繁簡） */
+  hanScript?: OcrHanScriptMeta;
 };
 
 function lineToSnippet(line: Line): OcrLineSnippet {

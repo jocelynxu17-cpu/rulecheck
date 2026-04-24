@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { detectHanScriptSummary } from "@/lib/ocr/ocr-han-script";
 import type { AnalysisResult, ImageDualTrackReport } from "@/types/analysis";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -166,6 +167,13 @@ export function AnalyzeView() {
     return text;
   }, [result, text]);
 
+  /** 依目前可編輯框內容即時統計（不改正文、不轉繁簡） */
+  const imageOcrHanLabelZh = useMemo(() => {
+    const t = imageOcrText.trim();
+    if (!t) return null;
+    return detectHanScriptSummary(t).labelZh;
+  }, [imageOcrText]);
+
   async function runOcrPreview() {
     if (!imageFile) {
       toast.error("請先選擇圖片");
@@ -226,8 +234,11 @@ export function AnalyzeView() {
           : bp?.qualityCautionZh != null
             ? ` ${bp.qualityCautionZh}`
             : "";
+      const scriptPart = detailed.hanScript?.labelZh
+        ? `字形摘要：${detailed.hanScript.labelZh}（輸出不自動轉換繁簡）。 `
+        : "";
       toast.success("已於瀏覽器擷取圖片文字", {
-        description: `${passHint ? `${passHint} ` : ""}辨識信心 ${pct}（${tierLabel}）。語系：繁中＋簡中＋英文，多軌比選最佳結果。請確認下方文字後再送交檢測。${extra}`.trim(),
+        description: `${passHint ? `${passHint} ` : ""}${scriptPart}辨識信心 ${pct}（${tierLabel}）。語系：繁中＋簡中＋英文，多軌比選最佳結果。請確認下方文字後再送交檢測。${extra}`.trim(),
       });
     } catch (e) {
       const err = ocrMod.formatBrowserOcrError(e);
@@ -511,6 +522,14 @@ export function AnalyzeView() {
                       ) : (
                         <span className="text-xs text-ink-secondary">尚未擷取</span>
                       )}
+                      {imageOcrHanLabelZh ? (
+                        <span
+                          className="inline-flex rounded border border-zinc-200/90 bg-white px-2 py-1 text-[11px] font-medium text-ink"
+                          title="依框內文字中繁／簡對照字統計，僅供參考；不會自動轉換或正規化字形。"
+                        >
+                          字形：{imageOcrHanLabelZh}
+                        </span>
+                      ) : null}
                     </div>
                     <div className="space-y-2">
                       <p className="text-xs font-medium text-ink-secondary">OCR 文字（輔助參考，可編輯）</p>
@@ -522,7 +541,7 @@ export function AnalyzeView() {
                       />
                       <p className="text-[11px] leading-relaxed text-ink-secondary">
                         此欄會與圖檔一併送交：有內容時另跑<strong className="font-medium text-ink">文字軌</strong>
-                        合規分析並與圖像結果合併；可附帶辨識信心。主判斷仍以圖像 AI 為準。
+                        合規分析並與圖像結果合併；可附帶辨識信心。主判斷仍以圖像 AI 為準。OCR 保留引擎輸出字形，不會自動繁簡轉換。
                       </p>
                     </div>
                     {imageOcrLines && imageOcrLines.length > 0 ? (
