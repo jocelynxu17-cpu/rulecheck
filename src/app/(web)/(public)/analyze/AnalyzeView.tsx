@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { AnalysisResult } from "@/types/analysis";
+import type { AnalysisResult, ImageDualTrackReport } from "@/types/analysis";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,74 @@ function formatOcrPercent(conf01: number | null | undefined, explicitPercent?: n
   if (explicitPercent != null && Number.isFinite(explicitPercent)) return `${Math.round(explicitPercent)}%`;
   if (conf01 == null || !Number.isFinite(conf01)) return "—";
   return `${Math.round(conf01 * 100)}%`;
+}
+
+function ImageDualTrackSummaryBlock(props: {
+  report: ImageDualTrackReport;
+  serverOcrConfidence?: number | null;
+  previewConfidence01: number | null;
+  previewPercent: number | null;
+}) {
+  const { report, serverOcrConfidence, previewConfidence01, previewPercent } = props;
+  const conf01 = report.ocrConfidence ?? serverOcrConfidence ?? previewConfidence01;
+  const hasServerConf = serverOcrConfidence != null && Number.isFinite(serverOcrConfidence);
+  const hasPreviewOnly = !hasServerConf && previewConfidence01 != null && Number.isFinite(previewConfidence01);
+
+  return (
+    <>
+      <div className="space-y-2">
+        <p className="text-xs font-medium text-ink-secondary">圖像 AI 摘要（主軌）</p>
+        <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink">{report.visionSummary}</p>
+      </div>
+      {report.textPassSummary ? (
+        <div className="space-y-2 rounded-lg border border-surface-border bg-canvas/80 p-3">
+          <p className="text-xs font-medium text-ink-secondary">文字軌合規摘要（輔助）</p>
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink">{report.textPassSummary}</p>
+          {report.textPassFindingsCount != null ? (
+            <p className="text-xs text-ink-secondary">文字軌偵測項目數：{report.textPassFindingsCount}</p>
+          ) : null}
+        </div>
+      ) : null}
+      <div className="space-y-2">
+        <p className="text-xs font-medium text-ink-secondary">OCR 參考文字（可於送檢前編輯）</p>
+        <p className="text-xs leading-relaxed text-ink-secondary">
+          此段為擷取或手動編輯之文字，供對照與微調；合規主判讀仍以圖像 AI 為準，並可與下方「標示後原文」對照。
+        </p>
+        <div className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border border-surface-border bg-canvas p-3 text-sm text-ink">
+          {report.ocrSupportText.trim() ? report.ocrSupportText : "（送檢時未帶入文字／OCR 為空）"}
+        </div>
+        {hasServerConf ? (
+          <div className="flex flex-wrap items-center gap-2 text-ink">
+            <span className="text-sm">
+              OCR 辨識信心（檢測階段）：{" "}
+              <span className="font-semibold tabular-nums">{formatOcrPercent(serverOcrConfidence)}</span>
+            </span>
+            <span className="rounded-md bg-zinc-200/80 px-2 py-0.5 text-xs font-medium text-zinc-800">
+              {ocrConfidenceTier(serverOcrConfidence!)}
+            </span>
+            <span className="text-xs text-ink-secondary">（有文字之行平均）</span>
+          </div>
+        ) : hasPreviewOnly ? (
+          <div className="space-y-1 text-sm text-ink-secondary">
+            <p>送交檢測時使用您編輯後的文字，以下為瀏覽器擷取時之信心參考：</p>
+            <div className="flex flex-wrap items-center gap-2 text-ink">
+              <span className="font-semibold tabular-nums">{formatOcrPercent(previewConfidence01, previewPercent ?? undefined)}</span>
+              <span className="rounded-md bg-zinc-200/80 px-2 py-0.5 text-xs font-medium text-zinc-800">
+                {ocrConfidenceTier(previewConfidence01!)}
+              </span>
+            </div>
+          </div>
+        ) : conf01 != null && Number.isFinite(conf01) ? (
+          <div className="flex flex-wrap items-center gap-2 text-sm text-ink">
+            <span>OCR 信心參考：{formatOcrPercent(conf01)}</span>
+            <span className="rounded-md bg-zinc-200/80 px-2 py-0.5 text-xs font-medium text-zinc-800">{ocrConfidenceTier(conf01)}</span>
+          </div>
+        ) : (
+          <p className="text-sm text-ink-secondary">未帶入伺服器 OCR 行級信心；您仍可於送檢前編輯文字。</p>
+        )}
+      </div>
+    </>
+  );
 }
 
 export function AnalyzeView() {
@@ -177,11 +245,6 @@ export function AnalyzeView() {
           setError("請選擇圖片。");
           return;
         }
-        if (!imageOcrText.trim()) {
-          setError("請先按「擷取文字（瀏覽器 OCR）」取得文字，確認或編輯後再送交檢測。");
-          toast.error("缺少辨識文字");
-          return;
-        }
         const fd = new FormData();
         fd.append("kind", "image");
         fd.append("file", imageFile);
@@ -298,7 +361,10 @@ export function AnalyzeView() {
       <Card className="p-0">
         <CardHeader className="border-b border-surface-border px-5 py-5 sm:px-6">
           <CardTitle>輸入內容</CardTitle>
-          <CardDescription>登入後使用工作區之共用審查額度；圖片請於瀏覽器擷取文字並編輯後再檢測。</CardDescription>
+          <CardDescription>
+            登入後使用工作區之共用審查額度。圖片檢測為<strong className="font-medium text-ink">雙軌</strong>
+            ：主軸為圖像 AI 合規判讀；瀏覽器 OCR 僅供文字對照與編輯（選填，建議仍擷取以利對照）。
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5 px-5 py-6 sm:px-6">
           <div className="flex flex-wrap gap-1.5">
@@ -356,7 +422,9 @@ export function AnalyzeView() {
                 }}
               />
               <p className="text-xs leading-relaxed text-ink-secondary">
-                建議清晰海報或截圖；上限 10MB。請先按「擷取文字（瀏覽器 OCR）」於您的裝置上辨識（支援繁中為主），於下方檢查、編輯後再送交檢測；伺服器不再執行 OCR，可避免逾時。
+                建議清晰海報或截圖；上限 10MB。送檢時會以<strong className="font-medium text-ink">圖像 AI</strong>
+                為主分析畫面宣稱；您可按「擷取文字（瀏覽器 OCR）」取得可編輯文字作<strong className="font-medium text-ink">輔助參考</strong>
+                （非唯一依據）。OCR 品質不佳時，仍以圖像分析為準。
               </p>
               {ocrClientError ? (
                 <div className="rounded-lg border border-red-200/90 bg-red-50/90 px-3 py-2 text-sm text-red-950">
@@ -399,15 +467,16 @@ export function AnalyzeView() {
                       )}
                     </div>
                     <div className="space-y-2">
-                      <p className="text-xs font-medium text-ink-secondary">送交檢測的文字（可編輯）</p>
+                      <p className="text-xs font-medium text-ink-secondary">OCR 文字（輔助參考，可編輯）</p>
                       <Textarea
                         value={imageOcrText}
                         onChange={(e) => setImageOcrText(e.target.value)}
-                        placeholder="請先按「擷取文字（瀏覽器 OCR）」…"
+                        placeholder="選填：按「擷取文字」帶入，或手動貼上／修正…"
                         className="min-h-[160px]"
                       />
                       <p className="text-[11px] leading-relaxed text-ink-secondary">
-                        合規分析僅依此欄文字；送檢時一併傳送辨識信心（若有），伺服器不會再執行 OCR。
+                        此欄會與圖檔一併送交：有內容時另跑<strong className="font-medium text-ink">文字軌</strong>
+                        合規分析並與圖像結果合併；可附帶辨識信心。主判斷仍以圖像 AI 為準。
                       </p>
                     </div>
                     {imageOcrLines && imageOcrLines.length > 0 ? (
@@ -462,7 +531,7 @@ export function AnalyzeView() {
                 loading ||
                 workspaceLoading ||
                 (tab === "text" && !text.trim()) ||
-                (tab === "image" && (!imageFile || !imageOcrText.trim())) ||
+                (tab === "image" && !imageFile) ||
                 (tab === "pdf" && !pdfFile) ||
                 (loggedIn && !workspaceId)
               }
@@ -507,48 +576,64 @@ export function AnalyzeView() {
       {result ? (
         <div className="space-y-10">
           {result.meta.inputKind === "image" && imagePreviewUrl ? (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">圖片與辨識</CardTitle>
-                <CardDescription>以下為送交檢測前之上傳預覽；標示後原文依實際送交檢測之文字產生。</CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-4 sm:grid-cols-2">
-                <div className="relative max-h-72 overflow-hidden rounded-xl border border-surface-border bg-canvas">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={imagePreviewUrl} alt="分析圖片" className="max-h-72 w-full object-contain object-top" />
-                </div>
-                <div className="space-y-3 text-sm text-ink-secondary">
-                  {result.meta.ocrConfidence != null ? (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-ink">
-                        OCR 辨識信心（檢測階段）：{" "}
-                        <span className="font-semibold tabular-nums text-ink">
-                          {formatOcrPercent(result.meta.ocrConfidence)}
-                        </span>
-                      </p>
-                      <span className="rounded-md bg-zinc-200/80 px-2 py-0.5 text-xs font-medium text-zinc-800">
-                        {ocrConfidenceTier(result.meta.ocrConfidence)}
-                      </span>
-                      <span className="text-xs text-ink-secondary">（有文字之行平均）</span>
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">圖片與雙軌結果</CardTitle>
+                  <CardDescription>
+                    主軌為圖像 AI；OCR 為輔助文字層。下方「發現項目」為兩軌合併後清單；「標示後原文」仍以 OCR／編輯後文字為對照基準。
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-6 lg:grid-cols-2">
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-ink-secondary">原始圖片</p>
+                    <div className="relative max-h-72 overflow-hidden rounded-xl border border-surface-border bg-canvas">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={imagePreviewUrl} alt="分析圖片" className="max-h-72 w-full object-contain object-top" />
                     </div>
-                  ) : imageOcrPreviewConfidence != null ? (
-                    <div className="space-y-1">
-                      <p>送交檢測時使用您編輯後的文字，故以下為瀏覽器擷取時之信心參考：</p>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold tabular-nums text-ink">
-                          {formatOcrPercent(imageOcrPreviewConfidence, imageOcrPreviewPercent ?? undefined)}
-                        </span>
-                        <span className="rounded-md bg-zinc-200/80 px-2 py-0.5 text-xs font-medium text-zinc-800">
-                          {ocrConfidenceTier(imageOcrPreviewConfidence)}
-                        </span>
+                  </div>
+                  <div className="space-y-6 text-sm">
+                    {result.imageDualTrack ? (
+                      <ImageDualTrackSummaryBlock
+                        report={result.imageDualTrack}
+                        serverOcrConfidence={result.meta.ocrConfidence}
+                        previewConfidence01={imageOcrPreviewConfidence}
+                        previewPercent={imageOcrPreviewPercent}
+                      />
+                    ) : (
+                      <div className="space-y-3 text-ink-secondary">
+                        {result.meta.ocrConfidence != null ? (
+                          <div className="flex flex-wrap items-center gap-2 text-ink">
+                            <span>OCR 信心 {formatOcrPercent(result.meta.ocrConfidence)}</span>
+                            <span className="rounded-md bg-zinc-200/80 px-2 py-0.5 text-xs font-medium text-zinc-800">
+                              {ocrConfidenceTier(result.meta.ocrConfidence)}
+                            </span>
+                          </div>
+                        ) : null}
                       </div>
-                    </div>
-                  ) : (
-                    <p>已使用手動輸入或編輯後文字送交檢測（未帶入伺服器 OCR 行級信心）。</p>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+              {result.imageDualTrack && result.imageDualTrack.visionFindings.length > 0 ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">圖像 AI 發現項目（主軌）</CardTitle>
+                    <CardDescription>依畫面判讀之項目；與下方合併清單可能重疊時已去重。</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-5">
+                    {result.imageDualTrack.visionFindings.map((f, idx) => (
+                      <FindingPanel
+                        key={`vision-${f.riskyPhrase}-${idx}`}
+                        finding={f}
+                        fullText={result.analyzedText ?? result.imageDualTrack?.visionSummary ?? ""}
+                        allowRegenerate={!result.meta.guest}
+                      />
+                    ))}
+                  </CardContent>
+                </Card>
+              ) : null}
+            </>
           ) : null}
 
           {!result.pdfReport ? <NonPdfInsightSummary result={result} /> : null}

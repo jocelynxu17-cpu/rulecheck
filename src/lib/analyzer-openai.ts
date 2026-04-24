@@ -126,3 +126,111 @@ export async function analyzeWithOpenAI(text: string): Promise<AnalysisResult | 
     },
   };
 }
+
+const VISION_SYSTEM = `你是台灣「廣告合規」顧問助理。你會收到一張**廣告／海報／電商素材**圖片（可能含主標、副標、產品圖、數字、Logo、警語等）。
+請**以畫面整體為主**判斷主要行銷宣稱與合規風險；不要假設你一定讀到所有小字。
+若一併提供「OCR 參考文字」，僅供對照可能漏讀之處，**仍以圖面視覺訊息為準**。
+
+輸出單一 JSON 物件（不要 markdown），schema 與純文字版相同：
+{ "summary": string, "findings": array }
+
+每筆 finding：
+- riskType 開頭須為「【醫療療效暗示】|【誇大效果】|【絕對化/保證性表述】|【速效或數字結果承諾】|【容易誤導的效果描述】」之一，後接 1～2 句說明。
+- matchedText：寫圖上可見的關鍵字句或主張（可引用 OCR 若與畫面一致）。
+- riskyPhrase：簡短中文標題，描述「畫面在承諾什麼」。
+- category、lawName、article、reason、legalReference、severity、rewrites（conservative / marketing_natural / ecommerce_concise）同文字版規範。
+
+summary：第一段 1～2 句說明你從**圖像**推斷的產業／訴求與主要法規風險面向；其後概括 findings。`;
+
+/**
+ * 以 GPT **vision** 分析圖像本身（主軌）；與 OCR 文字軌分開。
+ * `spanTargetText` 通常為 OCR 全文，用於在可對應時計算高亮 spans。
+ */
+export async function analyzeImageWithOpenAIVision(params: {
+  imageBase64: string;
+  mimeType: string;
+  ocrHint: string;
+  spanTargetText: string;
+}): Promise<AnalysisResult | null> {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) return null;
+
+  const model = process.env.OPENAI_VISION_MODEL ?? process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+  const openai = new OpenAI({ apiKey: key });
+  const { imageBase64, mimeType, ocrHint, spanTargetText } = params;
+  const hint = ocrHint.trim()
+    ? `以下為使用者裝置 OCR 參考（可能不完整或錯誤，請以圖為準）：\n"""${ocrHint.slice(0, 12_000)}"""`
+    : "（未提供 OCR 參考文字；請完全依圖面判讀。）";
+
+  const completion = await openai.chat.completions.create({
+    model,
+    temperature: 0.2,
+    max_tokens: 4096,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: VISION_SYSTEM },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: hint },
+          {
+            type: "image_url",
+            image_url: {
+              url: `data:${mimeType};base64,${imageBase64}`,
+              detail: "auto",
+            },
+          },
+        ],
+      },
+    ],
+  });
+
+  const raw = completion.choices[0]?.message?.content;
+  if (!raw) {
+    console.error("[analyze] OpenAI vision returned empty message content");
+    return null;
+  }
+
+  let parsed: z.infer<typeof ResponseSchema>;
+  try {
+    parsed = ResponseSchema.parse(JSON.parse(raw));
+  } catch (e) {
+    console.error("[analyze] OpenAI vision JSON parse/schema failed:", e);
+    return null;
+  }
+
+  const spanText = spanTargetText.trim() || " ";
+
+  const findings: AnalysisFinding[] = parsed.findings.map((f) => {
+    const matchedText = (f.matchedText?.trim() || f.riskyPhrase).trim();
+    return {
+      riskyPhrase: f.riskyPhrase,
+      matchedText,
+      spans: mergeFindingsSpans(spanText, matchedText, f.riskyPhrase),
+      category: f.category,
+      riskType: f.riskType,
+      severity: f.severity,
+      lawName: f.lawName,
+      article: f.article,
+      reason: f.reason,
+      legalReference: f.legalReference,
+      suggestion: f.suggestion,
+      rewrites: {
+        conservative: f.rewrites.conservative,
+        marketing: f.rewrites.marketing_natural,
+        ecommerce: f.rewrites.ecommerce_concise,
+      },
+    };
+  });
+
+  return {
+    findings,
+    summary: parsed.summary,
+    scannedAt: new Date().toISOString(),
+    meta: {
+      source: "openai",
+      guest: false,
+      quotaRemaining: null,
+    },
+  };
+}

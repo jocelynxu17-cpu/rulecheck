@@ -61,6 +61,17 @@ export type AnalysisMeta = {
   ocrConfidence?: number | null;
 };
 
+/** 圖片雙軌：圖像 AI 為主、OCR 文字軌為輔（供 UI 分區顯示） */
+export type ImageDualTrackReport = {
+  visionSummary: string;
+  visionFindings: AnalysisFinding[];
+  ocrSupportText: string;
+  ocrConfidence: number | null;
+  /** 以 OCR／編輯後文字跑合規分析之摘要（若有） */
+  textPassSummary?: string;
+  textPassFindingsCount?: number;
+};
+
 export type AnalysisResult = {
   findings: AnalysisFinding[];
   summary: string;
@@ -68,6 +79,8 @@ export type AnalysisResult = {
   meta: AnalysisMeta;
   /** API 回傳：送交分析的原文（圖片 OCR／編輯後文字等），供前端高亮對照 */
   analyzedText?: string;
+  /** 圖片：圖像 AI 與文字軌分區結果 */
+  imageDualTrack?: ImageDualTrackReport;
   /** PDF：分頁結果與風險頁碼 */
   pdfReport?: {
     pageCount: number;

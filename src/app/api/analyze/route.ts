@@ -2,6 +2,8 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { runComplianceAnalysis } from "@/lib/analyze/run-compliance";
+import { mergeImageDualTrackAnalysis } from "@/lib/analyze/merge-image-dual-track";
+import { analyzeImageWithOpenAIVision } from "@/lib/analyzer-openai";
 import { analyzeTextMock } from "@/lib/analyzer-mock";
 import { IMAGE_MAX_BYTES, PDF_MAX_BYTES } from "@/lib/analyze/input-limits";
 import { resolveWorkspaceForUser } from "@/lib/workspace/resolve-workspace";
@@ -313,18 +315,7 @@ async function postAnalyze(request: Request) {
       if (file.size > IMAGE_MAX_BYTES) {
         return NextResponse.json(errPayload("圖片檔過大（上限 10MB）。", "IMAGE_TOO_LARGE"), { status: 400 });
       }
-      const trimmedOverride = ocrTextOverride.trim();
-      if (!trimmedOverride) {
-        return NextResponse.json(
-          errPayload(
-            "請先於此頁按「擷取文字（瀏覽器 OCR）」取得文字並確認內容，再送交檢測（避免伺服器逾時）。",
-            "IMAGE_OCR_TEXT_REQUIRED"
-          ),
-          { status: 400 }
-        );
-      }
-
-      let textForAnalysis = trimmedOverride;
+      const ocrTrim = ocrTextOverride.trim();
       let ocrConfidence: number | null = null;
       if (ocrConfidenceClient) {
         const n = parseFloat(ocrConfidenceClient);
@@ -332,56 +323,103 @@ async function postAnalyze(request: Request) {
           ocrConfidence = n > 1 ? Math.min(1, n / 100) : Math.max(0, Math.min(1, n));
         }
       }
-      logOcrTextLength = textForAnalysis.length;
-      console.log("[analyze] image path", {
-        mode: "client_ocr",
-        ocrTextLength: textForAnalysis.length,
-        ocrConfidence,
-        fileBytes: file.size,
-      });
+
+      const buf = Buffer.from(await file.arrayBuffer());
+      const mimeType = file.type && file.type.startsWith("image/") ? file.type : "image/jpeg";
 
       const consumed = await consumeWorkspace(supabase, workspaceId, user.id, 1, "image", {
-        mode: "ocr_browser",
+        mode: "image_dual",
         bytes: file.size,
+        hasOcrText: Boolean(ocrTrim),
       });
       if (!consumed.ok) return consumed.response;
 
+      const metaBase = {
+        guest: false as const,
+        plan: wb.plan,
+        workspaceMonthlyQuotaUnits: wb.workspaceMonthlyQuotaUnits,
+        workspaceSubscriptionStatus: wb.workspaceSubscriptionStatus,
+        workspaceBillingProvider: wb.workspaceBillingProvider,
+        quotaRemaining: consumed.remaining,
+        workspaceId,
+        workspaceName: wb.workspaceName,
+        inputKind: "image" as const,
+        unitsCharged: 1,
+        ocrConfidence,
+      };
+
+      let visionResult: Awaited<ReturnType<typeof analyzeImageWithOpenAIVision>> = null;
       try {
-        result = await runComplianceAnalysis(textForAnalysis, {
-          guest: false,
-          plan: wb.plan,
-          workspaceMonthlyQuotaUnits: wb.workspaceMonthlyQuotaUnits,
-          workspaceSubscriptionStatus: wb.workspaceSubscriptionStatus,
-          workspaceBillingProvider: wb.workspaceBillingProvider,
-          quotaRemaining: consumed.remaining,
-          workspaceId,
-          workspaceName: wb.workspaceName,
-          inputKind: "image",
-          unitsCharged: 1,
-          ocrConfidence,
+        const visionPromise = analyzeImageWithOpenAIVision({
+          imageBase64: buf.toString("base64"),
+          mimeType,
+          ocrHint: ocrTrim,
+          spanTargetText: ocrTrim || " ",
+        }).catch((e) => {
+          logCaught("[analyze] OpenAI vision call failed", e);
+          return null;
+        });
+
+        const textPromise =
+          ocrTrim.length > 0
+            ? runComplianceAnalysis(ocrTrim, metaBase).catch((e) => {
+                logCaught("[analyze] image text-track failed", e);
+                return null;
+              })
+            : Promise.resolve(null);
+
+        const [v, t] = await Promise.all([visionPromise, textPromise]);
+        visionResult = v;
+        const textPass = t;
+
+        if (!visionResult && !ocrTrim) {
+          return NextResponse.json(
+            errPayload(
+              "圖像 AI 分析無法完成，且未提供 OCR 參考文字。請換圖、稍後再試，或先以瀏覽器擷取文字。",
+              "IMAGE_VISION_UNAVAILABLE"
+            ),
+            { status: 422 }
+          );
+        }
+
+        try {
+          result = mergeImageDualTrackAnalysis({
+            vision: visionResult,
+            textPass: textPass,
+            ocrSupportText: ocrTrim,
+            ocrConfidence,
+            metaPatch: metaBase,
+          });
+        } catch (e) {
+          logCaught("[analyze] merge image dual-track failed", e);
+          return NextResponse.json(
+            errPayload("圖片分析合併失敗", "IMAGE_MERGE_FAILED", {
+              message: e instanceof Error ? e.message : String(e),
+            }),
+            { status: 500 }
+          );
+        }
+
+        logOcrTextLength = ocrTrim.length || null;
+        console.log("[analyze] image dual-track done", {
+          visionFindings: visionResult?.findings.length ?? 0,
+          textFindings: textPass?.findings.length ?? 0,
+          mergedFindings: result.findings.length,
+          source: result.meta?.source,
+          ocrLen: ocrTrim.length,
         });
       } catch (e) {
-        logCaught("[analyze] image GPT pipeline threw, rule-only fallback", e);
-        result = ruleOnlyFallback(textForAnalysis, {
-          guest: false,
-          plan: wb.plan,
-          workspaceMonthlyQuotaUnits: wb.workspaceMonthlyQuotaUnits,
-          workspaceSubscriptionStatus: wb.workspaceSubscriptionStatus,
-          workspaceBillingProvider: wb.workspaceBillingProvider,
-          quotaRemaining: consumed.remaining,
-          workspaceId,
-          workspaceName: wb.workspaceName,
-          inputKind: "image",
-          unitsCharged: 1,
-          ocrConfidence,
-        });
+        logCaught("[analyze] image dual-track outer failure", e);
+        return NextResponse.json(
+          errPayload("圖片分析失敗", "IMAGE_ANALYSIS_FAILED", {
+            message: e instanceof Error ? e.message : String(e),
+            stack: e instanceof Error ? e.stack : undefined,
+          }),
+          { status: 500 }
+        );
       }
-      result = { ...result, analyzedText: textForAnalysis };
-      console.log("[analyze] image analysis done", {
-        findingsCount: result.findings.length,
-        source: result.meta?.source,
-      });
-      inputTextForLog = textForAnalysis.slice(0, 50_000);
+
+      inputTextForLog = (ocrTrim || `[圖像分析] ${file.name}`).slice(0, 50_000);
     } catch (e) {
       logCaught("[analyze] image branch failure", e);
       return NextResponse.json(
