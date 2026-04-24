@@ -1,11 +1,15 @@
 import path from "path";
-import { createWorker } from "tesseract.js";
+import Tesseract from "tesseract.js";
+import { pageToDetailed, type OcrDetailedResult } from "@/lib/ocr/tesseract-page-result";
 
-async function recognizeWithLangs(buffer: Buffer, langs: string): Promise<{ text: string; confidence: number }> {
+export type { OcrDetailedResult, OcrLineSnippet, OcrBlockSnippet } from "@/lib/ocr/tesseract-page-result";
+export { normalizeOcrConfidence } from "@/lib/ocr/tesseract-page-result";
+
+async function recognizeWithLangs(buffer: Buffer, langs: string): Promise<OcrDetailedResult> {
   const workerPath = path.join(process.cwd(), "node_modules", "tesseract.js", "dist", "worker.min.js");
   const corePath = path.join(process.cwd(), "node_modules", "tesseract.js-core");
 
-  const worker = await createWorker(langs, 1, {
+  const worker = await Tesseract.createWorker(langs, 1, {
     logger: () => undefined,
     workerBlobURL: false,
     workerPath,
@@ -13,16 +17,16 @@ async function recognizeWithLangs(buffer: Buffer, langs: string): Promise<{ text
   });
 
   try {
+    await worker.setParameters({
+      tessedit_pageseg_mode: Tesseract.PSM.AUTO,
+      user_defined_dpi: "300",
+    });
+
     const {
-      data: { text, confidence },
-    } = await worker.recognize(buffer);
-    const cleaned = String(text ?? "")
-      .replace(/\s+/g, " ")
-      .trim();
-    return {
-      text: cleaned.slice(0, 80_000),
-      confidence: typeof confidence === "number" ? confidence : 0,
-    };
+      data: page,
+    } = await worker.recognize(buffer, {}, { blocks: true } as Parameters<typeof worker.recognize>[2]);
+
+    return pageToDetailed(page, 120);
   } finally {
     await worker.terminate();
   }
@@ -31,8 +35,15 @@ async function recognizeWithLangs(buffer: Buffer, langs: string): Promise<{ text
 /**
  * 圖片 OCR（繁中 + 英文）。Node 環境需關閉 workerBlobURL 並指定 worker／core 路徑。
  * 若 chi_tra+eng 失敗，會退回僅 eng。
+ * 主要供未帶客戶端 ocrText 之後援；正式流程應以瀏覽器 OCR 為主。
  */
 export async function ocrImageBuffer(buffer: Buffer): Promise<{ text: string; confidence: number }> {
+  const detailed = await ocrImageBufferDetailed(buffer);
+  return { text: detailed.text, confidence: detailed.confidence };
+}
+
+/** 完整 OCR（僅伺服器／除錯用）。 */
+export async function ocrImageBufferDetailed(buffer: Buffer): Promise<OcrDetailedResult> {
   try {
     return await recognizeWithLangs(buffer, "chi_tra+eng");
   } catch (e) {

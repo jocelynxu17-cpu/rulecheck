@@ -13,22 +13,19 @@ export default function WebLandingPage() {
       </p>
       <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
         <Link
-          href="/analyze"
-          className="inline-flex h-11 items-center justify-center rounded-xl bg-ink px-8 text-sm font-medium text-white transition hover:bg-ink/90"
-        >
-          開始檢測
-        </Link>
-        <Link
           href="/login"
-          className="inline-flex h-11 items-center justify-center rounded-xl border border-surface-border bg-white px-7 text-sm font-medium text-ink transition hover:bg-zinc-50"
+          className="inline-flex h-11 items-center justify-center rounded-xl border border-surface-border bg-white px-8 text-sm font-medium text-ink transition hover:bg-zinc-50"
         >
           登入
         </Link>
-        <Link href="/signup" className="text-sm font-medium text-ink-secondary underline-offset-4 hover:text-ink hover:underline">
+        <Link
+          href="/signup"
+          className="inline-flex h-11 items-center justify-center rounded-xl bg-ink px-8 text-sm font-medium text-white transition hover:bg-ink/90"
+        >
           建立帳號
         </Link>
       </div>
-      <p className="mt-8 text-xs text-ink-secondary">訪客可試用檢測 · 本工具不構成法律意見</p>
+      <p className="mt-8 text-xs text-ink-secondary">本工具不構成法律意見</p>
     </div>
   );
 }

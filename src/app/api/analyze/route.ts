@@ -156,6 +156,8 @@ async function postAnalyze(request: Request) {
   let file: File | null = null;
 
   let ocrTextOverride = "";
+  /** 客戶端瀏覽器 OCR 之整頁信心（0–1），與 ocrText 一併送出時寫入 meta。 */
+  let ocrConfidenceClient: string | null = null;
 
   if (contentType.includes("multipart/form-data")) {
     const form = await request.formData();
@@ -166,6 +168,8 @@ async function postAnalyze(request: Request) {
     if (typeof t === "string") textIn = t;
     const ocrT = form.get("ocrText");
     if (typeof ocrT === "string") ocrTextOverride = ocrT;
+    const ocrConf = form.get("ocrConfidence");
+    if (typeof ocrConf === "string" && ocrConf.trim()) ocrConfidenceClient = ocrConf.trim();
     const f = form.get("file");
     if (f instanceof File) file = f;
   } else {
@@ -309,63 +313,35 @@ async function postAnalyze(request: Request) {
       if (file.size > IMAGE_MAX_BYTES) {
         return NextResponse.json(errPayload("圖片檔過大（上限 10MB）。", "IMAGE_TOO_LARGE"), { status: 400 });
       }
-      const buf = Buffer.from(await file.arrayBuffer());
-
-      let textForAnalysis: string;
-      let ocrConfidence: number | null = null;
       const trimmedOverride = ocrTextOverride.trim();
-
-      if (trimmedOverride) {
-        textForAnalysis = trimmedOverride;
-        logOcrTextLength = textForAnalysis.length;
-        console.log("[analyze] image path", { mode: "ocr_edited", ocrTextLength: textForAnalysis.length, fileBytes: file.size });
-      } else {
-        let ocrMod: typeof import("@/lib/content-extract/image-ocr");
-        try {
-          ocrMod = await import("@/lib/content-extract/image-ocr");
-        } catch (e) {
-          logCaught("[analyze] image OCR module load failed", e);
-          return NextResponse.json(
-            errPayload("圖片辨識模組暫時無法載入，請稍後再試或改用純文字檢測。", "IMAGE_MODULE_LOAD_FAILED", {
-              message: e instanceof Error ? e.message : String(e),
-              stack: e instanceof Error ? e.stack : undefined,
-            }),
-            { status: 503 }
-          );
-        }
-        let ocr: { text: string; confidence: number };
-        try {
-          ocr = await ocrMod.ocrImageBuffer(buf);
-        } catch (e) {
-          logCaught("[analyze] OCR failure", e);
-          return NextResponse.json(
-            errPayload("圖片文字辨識失敗，請改用輸入文字或更清晰的圖檔。", "IMAGE_OCR_FAILED", {
-              message: e instanceof Error ? e.message : String(e),
-              stack: e instanceof Error ? e.stack : undefined,
-            }),
-            { status: 422 }
-          );
-        }
-        console.log("[analyze] image path", {
-          mode: "ocr",
-          ocrTextLength: ocr.text.length,
-          ocrConfidence: ocr.confidence,
-          fileBytes: file.size,
-        });
-        if (!ocr.text.trim()) {
-          console.error("[analyze] OCR returned empty text");
-          return NextResponse.json(
-            errPayload("無法從圖片辨識出文字。", "IMAGE_OCR_EMPTY"),
-            { status: 400 }
-          );
-        }
-        textForAnalysis = ocr.text;
-        ocrConfidence = ocr.confidence;
-        logOcrTextLength = textForAnalysis.length;
+      if (!trimmedOverride) {
+        return NextResponse.json(
+          errPayload(
+            "請先於此頁按「擷取文字（瀏覽器 OCR）」取得文字並確認內容，再送交檢測（避免伺服器逾時）。",
+            "IMAGE_OCR_TEXT_REQUIRED"
+          ),
+          { status: 400 }
+        );
       }
 
+      let textForAnalysis = trimmedOverride;
+      let ocrConfidence: number | null = null;
+      if (ocrConfidenceClient) {
+        const n = parseFloat(ocrConfidenceClient);
+        if (Number.isFinite(n)) {
+          ocrConfidence = n > 1 ? Math.min(1, n / 100) : Math.max(0, Math.min(1, n));
+        }
+      }
+      logOcrTextLength = textForAnalysis.length;
+      console.log("[analyze] image path", {
+        mode: "client_ocr",
+        ocrTextLength: textForAnalysis.length,
+        ocrConfidence,
+        fileBytes: file.size,
+      });
+
       const consumed = await consumeWorkspace(supabase, workspaceId, user.id, 1, "image", {
-        mode: trimmedOverride ? "ocr_edited" : "ocr",
+        mode: "ocr_browser",
         bytes: file.size,
       });
       if (!consumed.ok) return consumed.response;
