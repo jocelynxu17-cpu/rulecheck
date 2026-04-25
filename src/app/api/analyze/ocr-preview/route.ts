@@ -78,6 +78,10 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       text: ocr.text,
+      textDisplay: ocr.textDisplay ?? ocr.text,
+      textClean: ocr.textClean ?? ocr.textDisplay ?? ocr.text,
+      displayNormalization: ocr.displayNormalization ?? null,
+      gptCleanup: ocr.gptCleanup ?? null,
       confidence: ocr.confidence,
       confidencePercent: ocr.confidencePercent,
       lines: linesOut,

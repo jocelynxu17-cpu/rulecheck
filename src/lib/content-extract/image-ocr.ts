@@ -2,8 +2,15 @@ import path from "path";
 import Tesseract from "tesseract.js";
 import { pageToDetailed, type OcrDetailedResult } from "@/lib/ocr/tesseract-page-result";
 import { detectHanScriptSummary } from "@/lib/ocr/ocr-han-script";
+import { augmentOcrWithDisplayText } from "@/lib/ocr/ocr-script-normalize";
+import { enrichOcrWithGptCleanup } from "@/lib/ocr/ocr-gpt-cleanup";
 
-export type { OcrDetailedResult, OcrLineSnippet, OcrBlockSnippet } from "@/lib/ocr/tesseract-page-result";
+export type {
+  OcrDetailedResult,
+  OcrLineSnippet,
+  OcrBlockSnippet,
+  OcrGptCleanupMeta,
+} from "@/lib/ocr/tesseract-page-result";
 export { normalizeOcrConfidence } from "@/lib/ocr/tesseract-page-result";
 
 async function recognizeWithLangs(buffer: Buffer, langs: string): Promise<OcrDetailedResult> {
@@ -28,10 +35,9 @@ async function recognizeWithLangs(buffer: Buffer, langs: string): Promise<OcrDet
     } = await worker.recognize(buffer, {}, { blocks: true } as Parameters<typeof worker.recognize>[2]);
 
     const detailed = pageToDetailed(page, 420);
-    return {
-      ...detailed,
-      hanScript: detectHanScriptSummary(detailed.text),
-    };
+    const hanScript = detectHanScriptSummary(detailed.text);
+    const augmented = augmentOcrWithDisplayText({ ...detailed, hanScript });
+    return await enrichOcrWithGptCleanup(augmented);
   } finally {
     await worker.terminate();
   }
@@ -42,9 +48,18 @@ async function recognizeWithLangs(buffer: Buffer, langs: string): Promise<OcrDet
  * 若 chi_tra+chi_sim+eng 失敗則 chi_tra+eng，再失敗則僅 eng。
  * 主要供未帶客戶端 ocrText 之後援；正式流程應以瀏覽器 OCR 為主。
  */
-export async function ocrImageBuffer(buffer: Buffer): Promise<{ text: string; confidence: number }> {
+export async function ocrImageBuffer(buffer: Buffer): Promise<{
+  text: string;
+  /** 引擎聚合原文（未套用顯示層字形優化） */
+  textRaw: string;
+  confidence: number;
+}> {
   const detailed = await ocrImageBufferDetailed(buffer);
-  return { text: detailed.text, confidence: detailed.confidence };
+  return {
+    text: detailed.textClean ?? detailed.textDisplay ?? detailed.text,
+    textRaw: detailed.text,
+    confidence: detailed.confidence,
+  };
 }
 
 /** 完整 OCR（僅伺服器／除錯用）。 */

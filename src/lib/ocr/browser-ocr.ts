@@ -14,6 +14,7 @@ import {
   meritForCandidate,
 } from "@/lib/ocr/ocr-quality";
 import { detectHanScriptSummary } from "@/lib/ocr/ocr-han-script";
+import { augmentOcrWithDisplayText } from "@/lib/ocr/ocr-script-normalize";
 
 const OCR_MAX_LINES = 420;
 
@@ -129,7 +130,7 @@ async function runOcrWithSingleWorker(
     };
 
     const hanScript = detectHanScriptSummary(best.detailed.text);
-    return { ...best.detailed, browserPipeline, hanScript };
+    return augmentOcrWithDisplayText({ ...best.detailed, browserPipeline, hanScript });
   } finally {
     await worker.terminate().catch(() => undefined);
   }
@@ -139,7 +140,7 @@ async function runOcrWithSingleWorker(
  * 於瀏覽器執行 Tesseract。
  * 語系：chi_tra + chi_sim + eng（失敗則 chi_tra+eng，再失敗則 eng）。
  * 多軌：原圖 AUTO、預處理圖 AUTO；merit 仍偏低時加跑預處理圖 SPARSE_TEXT，三者取最佳。
- * 輸出保留引擎原始字形，不以程式自動繁簡轉換；`hanScript` 僅為輕量標示。
+ * `text` 保留引擎聚合原文；`textDisplay`／行區塊為顯示層字形優化（見 `displayNormalization`）。`hanScript` 係對引擎原文之統計。
  */
 export async function runBrowserOcrDetailed(
   file: File,

@@ -41,8 +41,26 @@ export type OcrBrowserPipelineMeta = {
   qualityCautionZh?: string;
 };
 
+/** 字形顯示優化（post-OCR）之中繼說明；引擎原文見 `text` */
+export type OcrDisplayNormalizationMeta = {
+  mode: "to_trad" | "to_simp" | "leave";
+  charSubstitutionsApplied: boolean;
+  labelZh: string;
+};
+
+/** GPT 可讀性清理（空格、斷行、雜訊）之中繼說明 */
+export type OcrGptCleanupMeta = {
+  source: "openai" | "fallback";
+  labelZh: string;
+};
+
 export type OcrDetailedResult = {
+  /** Tesseract 聚合之引擎原文（未做字形顯示優化） */
   text: string;
+  /** 供介面預設顯示／編輯之字形優化全文；未設定時請使用 `text` */
+  textDisplay?: string;
+  /** GPT 可讀性清理後全文（供 UI 預設與文字軌分析）；未設定時請用 `textDisplay` 或 `text` */
+  textClean?: string;
   /** 整頁代表信心 0–1（有文字之行的行級信心平均；無行則 page.confidence） */
   confidence: number;
   confidencePercent: number;
@@ -50,8 +68,12 @@ export type OcrDetailedResult = {
   lines: OcrLineSnippet[];
   /** 僅瀏覽器 OCR：多軌挑選與品質提示 */
   browserPipeline?: OcrBrowserPipelineMeta;
-  /** 依對照字統計之字形摘要（不改正文、不轉繁簡） */
+  /** 依對照字統計之字形摘要（針對引擎原文 `text`） */
   hanScript?: OcrHanScriptMeta;
+  /** 顯示層字形優化說明（伺服器／瀏覽器 OCR 皆可填） */
+  displayNormalization?: OcrDisplayNormalizationMeta;
+  /** GPT OCR 清理層（在 `textDisplay` 之後） */
+  gptCleanup?: OcrGptCleanupMeta;
 };
 
 function lineToSnippet(line: Line): OcrLineSnippet {

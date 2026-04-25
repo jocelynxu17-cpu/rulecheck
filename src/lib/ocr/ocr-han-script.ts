@@ -1,6 +1,7 @@
 /**
- * 依「繁／簡對照字」在 OCR 原文中的出現次數，做輕量字形摘要（僅標示，不轉換、不改正文）。
- * Tesseract 同時載入 chi_tra+chi_sim 時仍可能混碼；此摘要供 UI 參考，非語言學判定。
+ * 依「繁／簡對照字」在 OCR 原文中的出現次數，做輕量字形摘要（僅標示引擎輸出，不改正文）。
+ * Tesseract 同時載入 chi_tra+chi_sim 時仍可能混碼；此摘要供 UI 與顯示層決策參考，非語言學判定。
+ * 實際顯示字形優化見 `ocr-script-normalize.ts`（`text` 仍保留引擎原文）。
  */
 
 export type OcrHanScriptCode = "trad" | "simp" | "mixed";
@@ -226,6 +227,28 @@ for (const pair of TRAD_SIMP_PAIRS) {
   if (a === b) continue;
   TRAD_MARKERS.add(a);
   SIMP_MARKERS.add(b);
+}
+
+/**
+ * 單字替換用對照表（與 {@link detectHanScriptSummary} 同一字表）。
+ * 簡→繁：同一簡字取表內**首次**出現之繁體，以降低一簡對多繁之任意性。
+ * 繁→簡：後方表項覆蓋前方（與引擎混碼時之實務取捨一致即可）。
+ */
+const SIMP_TO_TRAD_CHAR = new Map<string, string>();
+const TRAD_TO_SIMP_CHAR = new Map<string, string>();
+
+for (const pair of TRAD_SIMP_PAIRS) {
+  const [trad, simp] = pair;
+  if (trad.length !== 1 || simp.length !== 1 || trad === simp) continue;
+  if (!SIMP_TO_TRAD_CHAR.has(simp)) SIMP_TO_TRAD_CHAR.set(simp, trad);
+  TRAD_TO_SIMP_CHAR.set(trad, simp);
+}
+
+export function getHanCharScriptMaps(): {
+  simpToTrad: ReadonlyMap<string, string>;
+  tradToSimp: ReadonlyMap<string, string>;
+} {
+  return { simpToTrad: SIMP_TO_TRAD_CHAR, tradToSimp: TRAD_TO_SIMP_CHAR };
 }
 
 function hasAnyCjk(text: string): boolean {
