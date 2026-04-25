@@ -375,7 +375,7 @@ async function postAnalyze(request: Request) {
         if (!visionResult && !ocrTrim) {
           return NextResponse.json(
             errPayload(
-              "圖像 AI 分析無法完成，且未提供 OCR 參考文字。請換圖、稍後再試，或先以瀏覽器擷取文字。",
+              "圖像 AI 分析暫時無法完成，且未附任何 OCR／編輯參考文字可作後援。請換圖或稍後再試；若需文字後援，可先擷取或貼上輔助層文字（選填）。",
               "IMAGE_VISION_UNAVAILABLE"
             ),
             { status: 422 }

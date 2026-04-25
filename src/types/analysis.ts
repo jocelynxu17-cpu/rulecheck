@@ -67,9 +67,11 @@ export type ImageDualTrackReport = {
   visionFindings: AnalysisFinding[];
   ocrSupportText: string;
   ocrConfidence: number | null;
-  /** 以 OCR／編輯後文字跑合規分析之摘要（若有） */
+  /** 以 OCR／編輯後文字跑合規分析之摘要（若有；選讀驗證，不作主判） */
   textPassSummary?: string;
   textPassFindingsCount?: number;
+  /** 文字軌發現（僅在圖像 AI 有回傳時另存；不併入主清單 findings） */
+  textPassFindings?: AnalysisFinding[];
 };
 
 export type AnalysisResult = {

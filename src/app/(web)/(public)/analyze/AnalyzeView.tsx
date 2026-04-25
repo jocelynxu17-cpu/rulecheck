@@ -60,17 +60,19 @@ function ImageDualTrackSummaryBlock(props: {
       </div>
       {report.textPassSummary ? (
         <div className="space-y-2 rounded-lg border border-surface-border bg-canvas/80 p-3">
-          <p className="text-xs font-medium text-ink-secondary">文字軌合規摘要（輔助）</p>
+          <p className="text-xs font-medium text-ink-secondary">文字軌合規摘要（選讀驗證，不作主判）</p>
           <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink">{report.textPassSummary}</p>
           {report.textPassFindingsCount != null ? (
-            <p className="text-xs text-ink-secondary">文字軌偵測項目數：{report.textPassFindingsCount}</p>
+            <p className="text-xs text-ink-secondary">文字軌偵測項目數（未併入主清單）：{report.textPassFindingsCount}</p>
           ) : null}
         </div>
       ) : null}
       <div className="space-y-2">
-        <p className="text-xs font-medium text-ink-secondary">OCR 參考文字（可於送檢前編輯）</p>
+        <p className="text-xs font-medium text-ink-secondary">輔助層：OCR／編輯文字（可於送檢前編輯）</p>
         <p className="text-xs leading-relaxed text-ink-secondary">
-          此段為擷取或手動編輯之文字，供對照與微調；合規主判讀仍以圖像 AI 為準，並可與下方「標示後原文」對照。
+          此段為擷取或手動編輯之參考文字，供信心顯示、對照與選用高亮；
+          <strong className="font-medium text-ink">合規主結果</strong>
+          （摘要、發現、法遵說明、改寫）以圖像 AI 為準。OCR 不佳時不影響主軌分析。
         </p>
         <div className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border border-surface-border bg-canvas p-3 text-sm text-ink">
           {report.ocrSupportText.trim() ? report.ocrSupportText : "（送檢時未帶入文字／OCR 為空）"}
@@ -166,6 +168,19 @@ export function AnalyzeView() {
     if (result.analyzedText) return result.analyzedText;
     return text;
   }, [result, text]);
+
+  /** 圖片主軌：改寫 API 需同時帶入圖像摘要與 OCR 參考文字，避免只餵錯誤 OCR。 */
+  const findingPanelFullText = useMemo(() => {
+    if (!result) return text;
+    if (result.meta.inputKind === "image" && result.imageDualTrack) {
+      const vs = result.imageDualTrack.visionSummary.trim();
+      const ocr = (result.analyzedText ?? "").trim();
+      if (vs && vs !== "（無）" && ocr) return `${vs}\n\n${ocr}`;
+      if (ocr) return ocr;
+      if (vs && vs !== "（無）") return vs;
+    }
+    return displayTextForHighlight;
+  }, [result, text, displayTextForHighlight]);
 
   /** 依目前可編輯框內容即時統計（不改正文、不轉繁簡） */
   const imageOcrHanLabelZh = useMemo(() => {
@@ -346,7 +361,7 @@ export function AnalyzeView() {
         <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-secondary">分析工作區</p>
         <h1 className="text-2xl font-medium tracking-tight text-ink sm:text-[1.625rem] sm:leading-snug">合規檢測</h1>
         <p className="max-w-xl text-[15px] leading-relaxed text-ink-secondary">
-          支援文字、圖片（OCR）與 PDF（依頁分析）。多帳號共用審查額度：文字／圖片各 1 點；PDF 依頁數扣點。
+          支援文字、圖片（圖像 AI 主軌，OCR 為輔助對照）與 PDF（依頁分析）。多帳號共用審查額度：文字／圖片各 1 點；PDF 依頁數扣點。
         </p>
       </div>
 
@@ -402,7 +417,7 @@ export function AnalyzeView() {
           <CardTitle>輸入內容</CardTitle>
           <CardDescription>
             登入後使用工作區之共用審查額度。圖片檢測為<strong className="font-medium text-ink">雙軌</strong>
-            ：主軸為圖像 AI 合規判讀；瀏覽器 OCR 僅供文字對照與編輯（選填，建議仍擷取以利對照）。
+            ：主軸為圖像 AI 合規判讀；瀏覽器 OCR 僅為輔助對照層（選填，擷取後可編輯並查看信心）。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5 px-5 py-6 sm:px-6">
@@ -540,8 +555,9 @@ export function AnalyzeView() {
                         className="min-h-[160px]"
                       />
                       <p className="text-[11px] leading-relaxed text-ink-secondary">
-                        此欄會與圖檔一併送交：有內容時另跑<strong className="font-medium text-ink">文字軌</strong>
-                        合規分析並與圖像結果合併；可附帶辨識信心。主判斷仍以圖像 AI 為準。OCR 保留引擎輸出字形，不會自動繁簡轉換。
+                        此欄與圖檔一併送交：有內容時另跑<strong className="font-medium text-ink">文字軌</strong>
+                        合規分析作<strong className="font-medium text-ink">選讀驗證</strong>
+                        ，不併入主清單；可附帶辨識信心。主摘要、主發現與改寫仍以圖像 AI 為準。OCR 保留引擎輸出字形，不會自動繁簡轉換。
                       </p>
                     </div>
                     {imageOcrLines && imageOcrLines.length > 0 ? (
@@ -646,7 +662,7 @@ export function AnalyzeView() {
                 <CardHeader>
                   <CardTitle className="text-base">圖片與雙軌結果</CardTitle>
                   <CardDescription>
-                    主軌為圖像 AI；OCR 為輔助文字層。下方「發現項目」為兩軌合併後清單；「標示後原文」仍以 OCR／編輯後文字為對照基準。
+                    主軌為圖像 AI（摘要、發現、法遵說明、改寫）；OCR／編輯文字為輔助層。下方「發現項目」為圖像 AI 主清單；「輔助層對照本文」僅供 OCR 高亮與對照。
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-6 lg:grid-cols-2">
@@ -680,24 +696,6 @@ export function AnalyzeView() {
                   </div>
                 </CardContent>
               </Card>
-              {result.imageDualTrack && result.imageDualTrack.visionFindings.length > 0 ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">圖像 AI 發現項目（主軌）</CardTitle>
-                    <CardDescription>依畫面判讀之項目；與下方合併清單可能重疊時已去重。</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-5">
-                    {result.imageDualTrack.visionFindings.map((f, idx) => (
-                      <FindingPanel
-                        key={`vision-${f.riskyPhrase}-${idx}`}
-                        finding={f}
-                        fullText={result.analyzedText ?? result.imageDualTrack?.visionSummary ?? ""}
-                        allowRegenerate={!result.meta.guest}
-                      />
-                    ))}
-                  </CardContent>
-                </Card>
-              ) : null}
             </>
           ) : null}
 
@@ -710,57 +708,126 @@ export function AnalyzeView() {
               allowRegenerate={!result.meta.guest}
               unitsCharged={result.meta.unitsCharged}
             />
-          ) : (
-            <Card>
-              <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-4 space-y-0">
-                <div className="space-y-2">
-                  <CardTitle>標示後原文</CardTitle>
-                  <CardDescription>高亮為系統偵測到的風險片語位置（僅供參考）。</CardDescription>
+          ) : result.meta.inputKind === "image" ? (
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle>總覽摘要</CardTitle>
+                  <CardDescription className="text-sm leading-relaxed text-ink-secondary">{result.summary}</CardDescription>
+                </CardHeader>
+              </Card>
+
+              <div className="space-y-5">
+                <div className="flex items-end justify-between gap-4">
+                  <h2 className="text-xl font-semibold tracking-tight text-ink">發現項目（圖像 AI 主軌）</h2>
+                  <p className="text-xs text-ink-secondary">共 {result.findings.length} 項</p>
                 </div>
-                <MetaBadges
-                  result={result}
-                  imagePreviewConfidence01={result.meta.inputKind === "image" ? imageOcrPreviewConfidence : null}
-                  imagePreviewPercent={result.meta.inputKind === "image" ? imageOcrPreviewPercent : null}
-                />
-              </CardHeader>
-              <CardContent className="rounded-2xl border border-surface-border bg-canvas p-5">
-                <HighlightedCopy text={displayTextForHighlight} spans={mergedSpans} />
-              </CardContent>
-            </Card>
-          )}
 
-          {!result.pdfReport ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>總覽摘要</CardTitle>
-                <CardDescription className="text-sm leading-relaxed text-ink-secondary">{result.summary}</CardDescription>
-              </CardHeader>
-            </Card>
-          ) : null}
-
-          {!result.pdfReport ? (
-            <div className="space-y-5">
-              <div className="flex items-end justify-between gap-4">
-                <h2 className="text-xl font-semibold tracking-tight text-ink">發現項目</h2>
-                <p className="text-xs text-ink-secondary">共 {result.findings.length} 項</p>
+                {result.findings.length === 0 ? (
+                  <p className="text-sm text-ink-secondary">未偵測到明顯風險片段（仍不代表合規）。</p>
+                ) : (
+                  <div className="space-y-6">
+                    {result.findings.map((f, idx) => (
+                      <FindingPanel
+                        key={`${f.riskyPhrase}-${idx}`}
+                        finding={f}
+                        fullText={findingPanelFullText}
+                        allowRegenerate={!result.meta.guest}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
 
-              {result.findings.length === 0 ? (
-                <p className="text-sm text-ink-secondary">未偵測到明顯風險片段（仍不代表合規）。</p>
-              ) : (
-                <div className="space-y-6">
-                  {result.findings.map((f, idx) => (
-                    <FindingPanel
-                      key={`${f.riskyPhrase}-${idx}`}
-                      finding={f}
-                      fullText={displayTextForHighlight}
-                      allowRegenerate={!result.meta.guest}
-                    />
-                  ))}
+              {result.imageDualTrack?.textPassFindings && result.imageDualTrack.textPassFindings.length > 0 ? (
+                <details className="group rounded-xl border border-surface-border bg-white p-5">
+                  <summary className="cursor-pointer list-none text-sm font-semibold text-ink outline-none [&::-webkit-details-marker]:hidden">
+                    <span className="inline-flex items-center gap-2">
+                      文字軌合規驗證（選讀，{result.imageDualTrack.textPassFindings.length} 項）
+                      <span className="text-xs font-medium text-ink-secondary group-open:hidden">展開</span>
+                      <span className="hidden text-xs font-medium text-ink-secondary group-open:inline">收合</span>
+                    </span>
+                  </summary>
+                  <p className="mt-3 text-xs leading-relaxed text-ink-secondary">
+                    以下僅依 OCR／編輯後文字產生，供交叉對照；主清單與主摘要仍以圖像 AI 為準。OCR 亂碼時請勿以此否定圖像判讀。
+                  </p>
+                  <div className="mt-4 space-y-5">
+                    {result.imageDualTrack.textPassFindings.map((f, idx) => (
+                      <FindingPanel
+                        key={`textpass-${f.riskyPhrase}-${idx}`}
+                        finding={f}
+                        fullText={displayTextForHighlight}
+                        allowRegenerate={!result.meta.guest}
+                      />
+                    ))}
+                  </div>
+                </details>
+              ) : null}
+
+              <Card>
+                <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-4 space-y-0">
+                  <div className="space-y-2">
+                    <CardTitle>輔助層對照本文（OCR／編輯文字）</CardTitle>
+                    <CardDescription>
+                      高亮僅在輔助文字內對齊；圖像 AI 主軌之 matchedText 未必出現於 OCR。若未擷取文字則可能無內容可標示。
+                    </CardDescription>
+                  </div>
+                  <MetaBadges
+                    result={result}
+                    imagePreviewConfidence01={imageOcrPreviewConfidence}
+                    imagePreviewPercent={imageOcrPreviewPercent}
+                  />
+                </CardHeader>
+                <CardContent className="rounded-2xl border border-surface-border bg-canvas p-5">
+                  <HighlightedCopy text={displayTextForHighlight} spans={mergedSpans} />
+                </CardContent>
+              </Card>
+            </>
+          ) : (
+            <>
+              <Card>
+                <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-4 space-y-0">
+                  <div className="space-y-2">
+                    <CardTitle>標示後原文</CardTitle>
+                    <CardDescription>高亮為系統偵測到的風險片語位置（僅供參考）。</CardDescription>
+                  </div>
+                  <MetaBadges result={result} imagePreviewConfidence01={null} imagePreviewPercent={null} />
+                </CardHeader>
+                <CardContent className="rounded-2xl border border-surface-border bg-canvas p-5">
+                  <HighlightedCopy text={displayTextForHighlight} spans={mergedSpans} />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>總覽摘要</CardTitle>
+                  <CardDescription className="text-sm leading-relaxed text-ink-secondary">{result.summary}</CardDescription>
+                </CardHeader>
+              </Card>
+
+              <div className="space-y-5">
+                <div className="flex items-end justify-between gap-4">
+                  <h2 className="text-xl font-semibold tracking-tight text-ink">發現項目</h2>
+                  <p className="text-xs text-ink-secondary">共 {result.findings.length} 項</p>
                 </div>
-              )}
-            </div>
-          ) : null}
+
+                {result.findings.length === 0 ? (
+                  <p className="text-sm text-ink-secondary">未偵測到明顯風險片段（仍不代表合規）。</p>
+                ) : (
+                  <div className="space-y-6">
+                    {result.findings.map((f, idx) => (
+                      <FindingPanel
+                        key={`${f.riskyPhrase}-${idx}`}
+                        finding={f}
+                        fullText={displayTextForHighlight}
+                        allowRegenerate={!result.meta.guest}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
 
           {result.meta.guest ? <GuestConversionCard /> : null}
 
@@ -799,7 +866,7 @@ function NonPdfInsightSummary({ result }: { result: AnalysisResult }) {
       <CardHeader className="pb-2">
         <CardTitle className="text-base">檢測摘要</CardTitle>
         <CardDescription>
-          {kind === "image" ? "圖片（OCR 後文字）" : "文字"} · 發現 {result.findings.length} 項風險片段
+          {kind === "image" ? "圖片（圖像 AI 主軌）" : "文字"} · 發現 {result.findings.length} 項風險片段
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -860,11 +927,11 @@ function MetaBadges({
       ) : null}
       {result.meta.ocrConfidence != null ? (
         <span className="rounded-lg border border-surface-border bg-white px-2 py-1">
-          OCR {formatOcrPercent(result.meta.ocrConfidence)}（{ocrConfidenceTier(result.meta.ocrConfidence)}）
+          OCR（輔助層）{formatOcrPercent(result.meta.ocrConfidence)}（{ocrConfidenceTier(result.meta.ocrConfidence)}）
         </span>
       ) : showPreviewOcr ? (
         <span className="rounded-lg border border-amber-200/80 bg-amber-50/50 px-2 py-1 text-amber-950">
-          瀏覽器 OCR {formatOcrPercent(imagePreviewConfidence01, imagePreviewPercent ?? undefined)}（
+          瀏覽器 OCR（輔助層）{formatOcrPercent(imagePreviewConfidence01, imagePreviewPercent ?? undefined)}（
           {ocrConfidenceTier(imagePreviewConfidence01)}）
         </span>
       ) : null}

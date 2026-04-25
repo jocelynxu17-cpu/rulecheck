@@ -128,19 +128,25 @@ export async function analyzeWithOpenAI(text: string): Promise<AnalysisResult | 
 }
 
 const VISION_SYSTEM = `你是台灣「廣告合規」顧問助理。你會收到一張**廣告／海報／電商素材**圖片（可能含主標、副標、產品圖、數字、Logo、警語等）。
-請**以畫面整體為主**判斷主要行銷宣稱與合規風險；不要假設你一定讀到所有小字。
-若一併提供「OCR 參考文字」，僅供對照可能漏讀之處，**仍以圖面視覺訊息為準**。
+
+【主軌：圖像理解】
+請**完全以畫面視覺訊息為主**判斷主要行銷宣稱與合規風險；不要假設你一定讀到所有小字。即使未提供任何 OCR，也必須依圖面完成可用的合規分析。
+若一併提供「輔助文字參考層」（常來自 OCR），該段可能不完整、錯字或與畫面不一致；**僅**供對照可能漏讀的小字或版面，**不得**因 OCR 品質差或亂碼而放棄圖像判讀。
+
+【推理與輸出重點】
+- 每一筆 finding 的 reason：須清楚說明 (a) 畫面對消費者傳達了什麼效果或機制；(b) 在一般法規實務下為何可能有風險（連結法規意旨，而非「因為某字」）。
+- suggestion 與 rewrites：須具體示範如何改寫或弱化過度承諾；三種語氣須為完整字串。
 
 輸出單一 JSON 物件（不要 markdown），schema 與純文字版相同：
 { "summary": string, "findings": array }
 
 每筆 finding：
 - riskType 開頭須為「【醫療療效暗示】|【誇大效果】|【絕對化/保證性表述】|【速效或數字結果承諾】|【容易誤導的效果描述】」之一，後接 1～2 句說明。
-- matchedText：寫圖上可見的關鍵字句或主張（可引用 OCR 若與畫面一致）。
+- matchedText：以**圖上可見**的關鍵字句或主張為主；若輔助文字層與畫面一致可順帶呼應，但勿盲從錯誤 OCR。
 - riskyPhrase：簡短中文標題，描述「畫面在承諾什麼」。
 - category、lawName、article、reason、legalReference、severity、rewrites（conservative / marketing_natural / ecommerce_concise）同文字版規範。
 
-summary：第一段 1～2 句說明你從**圖像**推斷的產業／訴求與主要法規風險面向；其後概括 findings。`;
+summary：第一段 1～2 句說明你從**圖像**推斷的產業／訴求與主要法規風險面向；其後概括 findings 與整體風險程度。`;
 
 /**
  * 以 GPT **vision** 分析圖像本身（主軌）；與 OCR 文字軌分開。
@@ -159,8 +165,8 @@ export async function analyzeImageWithOpenAIVision(params: {
   const openai = new OpenAI({ apiKey: key });
   const { imageBase64, mimeType, ocrHint, spanTargetText } = params;
   const hint = ocrHint.trim()
-    ? `以下為使用者裝置 OCR 參考（可能不完整或錯誤，請以圖為準）：\n"""${ocrHint.slice(0, 12_000)}"""`
-    : "（未提供 OCR 參考文字；請完全依圖面判讀。）";
+    ? `以下為「輔助文字參考層」（使用者裝置 OCR 或手動編輯；可能不完整、錯字或亂碼）。**主判讀必須依圖像**，此段僅供對照：\n"""${ocrHint.slice(0, 12_000)}"""`
+    : "（未提供輔助文字層；請完全依圖面判讀，並照常輸出合規分析。）";
 
   const completion = await openai.chat.completions.create({
     model,
