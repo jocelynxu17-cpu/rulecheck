@@ -9,14 +9,10 @@ export default async function AdminWorkspacesPage() {
   return (
     <div className="space-y-8">
       <div className="space-y-2">
-        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-secondary">管理</p>
+        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-secondary">內部營運</p>
         <h1 className="text-2xl font-medium tracking-tight text-ink sm:text-[1.625rem]">工作區</h1>
         <p className="max-w-2xl text-[15px] leading-relaxed text-ink-secondary">
-          多帳號共用審查額度、方案與訂閱狀態以工作區為準。手動修復與額度調整請至{" "}
-          <Link href="/internal" className="font-medium text-ink underline-offset-4 hover:underline">
-            總覽 · 營運動作
-          </Link>
-          。
+          以工作區為客戶單位：成員、額度、方案與帳務。點名稱進入全景頁；手動修復亦可在該頁操作。
         </p>
       </div>
 

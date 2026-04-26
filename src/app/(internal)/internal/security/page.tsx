@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { fetchInternalSecuritySnapshot } from "@/lib/admin/fetch-internal-security";
+import { getInternalRuntimeStatus } from "@/lib/admin/internal-runtime-status";
+import { InternalSystemEnvCard } from "@/components/admin/InternalSystemEnvCard";
 import { PaymentEventBadges, PaymentEventTypeBadge } from "@/components/admin/PaymentEventBadges";
 import { summarizePaymentPayload } from "@/lib/admin/payment-payload-summary";
 import { InternalOpsAuditSection } from "@/components/admin/InternalOpsAuditSection";
@@ -19,20 +21,23 @@ function formatDateTime(iso: string): string {
 
 export default async function InternalSecurityPage() {
   const snap = await fetchInternalSecuritySnapshot();
+  const runtime = getInternalRuntimeStatus();
 
   return (
     <div className="space-y-10 pb-8">
       <div className="space-y-2">
         <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-secondary">內部營運</p>
-        <h1 className="text-2xl font-medium tracking-tight text-ink">安全與權限總覽</h1>
+        <h1 className="text-2xl font-medium tracking-tight text-ink">安全</h1>
         <p className="max-w-2xl text-sm text-ink-secondary">
-          環境門檻與帳務審計摘要；細部操作仍須搭配主機／雲平台 log 與金流後台。
+          內部權限門檻、敏感帳務與稽核摘要；細部仍須搭配主機／雲平台 log 與金流後台。
         </p>
       </div>
 
       {snap.errorMessage ? (
         <p className="rounded-lg border border-amber-200/80 bg-amber-50/60 px-4 py-3 text-sm text-amber-950">{snap.errorMessage}</p>
       ) : null}
+
+      <InternalSystemEnvCard runtime={runtime} />
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card className="border-surface-border">
@@ -71,8 +76,8 @@ export default async function InternalSecurityPage() {
             <p className="text-3xl font-medium tabular-nums text-ink">{snap.highRiskPaymentEventCount7d}</p>
             <p className="mt-2 text-xs text-ink-secondary">
               詳列請至{" "}
-              <Link href="/internal/provider-logs" className="font-medium text-ink underline-offset-4 hover:underline">
-                供應商紀錄
+              <Link href="/internal/analysis" className="font-medium text-ink underline-offset-4 hover:underline">
+                分析營運
               </Link>
               。
             </p>

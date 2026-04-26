@@ -3,6 +3,8 @@ import { isLikelyPaymentFailureEventType, isNotifyLikePaymentEvent } from "@/lib
 import { countWorkspacesWithMultipleMembers } from "@/lib/admin/count-multi-member-workspaces";
 import { getInternalRuntimeStatus, type InternalRuntimeStatus } from "@/lib/admin/internal-runtime-status";
 import { fetchRecentInternalOpsAuditLogs, type InternalOpsAuditRow } from "@/lib/admin/internal-ops-audit";
+import type { AdminAnalysisOverview } from "@/lib/admin/fetch-admin-analysis-overview";
+import { buildEmptyAdminAnalysisOverview, fetchAdminAnalysisOverview } from "@/lib/admin/fetch-admin-analysis-overview";
 
 export type AdminRecentWorkspace = {
   id: string;
@@ -59,6 +61,8 @@ export type AdminHomeSnapshot = {
   recentProviderFailureEvents: AdminPaymentEventRow[];
   /** 內部營運稽核（最近寫入） */
   recentInternalOpsAudit: InternalOpsAuditRow[];
+  /** 今日／近 7 日分析與工作區活躍度摘要 */
+  analysisOverview: AdminAnalysisOverview;
 };
 
 function monthBoundsUtc(): { yymm: string; periodStart: string } {
@@ -90,6 +94,7 @@ export async function fetchAdminHomeSnapshot(): Promise<AdminHomeSnapshot> {
     recentBillingNotifyEvents: [],
     recentProviderFailureEvents: [],
     recentInternalOpsAudit: [],
+    analysisOverview: buildEmptyAdminAnalysisOverview(),
   };
 
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -260,12 +265,15 @@ export async function fetchAdminHomeSnapshot(): Promise<AdminHomeSnapshot> {
 
     const recentInternalOpsAudit = auditOut.error ? [] : auditOut.rows;
 
+    const analysisOverview = await fetchAdminAnalysisOverview(admin);
+
     return {
       ok: true,
       errorMessage: null,
       yymm,
       periodStart,
       runtime: getInternalRuntimeStatus(),
+      analysisOverview,
       totals: {
         userCount: userCountRes.count ?? 0,
         workspaceCount: wsCountRes.count ?? 0,

@@ -161,7 +161,7 @@ export function PaymentEventJsonLookup({ initialEventId }: { initialEventId?: st
     <Card className="border-surface-border">
       <CardHeader>
         <CardTitle className="text-base">帳務事件原始列（JSON）</CardTitle>
-        <CardDescription>讀取 `payment_events` 整列（含 payload）；與帳務事件／供應商紀錄頁同一資料源。</CardDescription>
+        <CardDescription>讀取 `payment_events` 整列（含 payload）；與帳務／分析營運頁同一資料源。</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex max-w-xl flex-col gap-2 sm:flex-row sm:items-end">
@@ -260,7 +260,7 @@ function eventPayloadRecord(ev: AdminPaymentEventDetail): Record<string, unknown
   return p && typeof p === "object" ? p : null;
 }
 
-/** 營運除錯主摘要：tone、供應商異常、帳務 notify 跡象（同一批 payment_events）。 */
+/** 除錯摘要：tone、帳務異常、notify 跡象（同一批 payment_events）。 */
 export function DebugOperatorToolboxSummary({ events }: { events: AdminPaymentEventDetail[] }) {
   const red = events.filter((e) => paymentEventOutcomeTone(e.event_type) === "red").length;
   const amber = events.filter((e) => paymentEventOutcomeTone(e.event_type) === "amber").length;
@@ -292,7 +292,7 @@ export function DebugOperatorToolboxSummary({ events }: { events: AdminPaymentEv
         <CardTitle className="text-base">營運除錯摘要</CardTitle>
         <CardDescription>
           以下三區皆自同一批 <code className="rounded bg-canvas px-0.5 font-mono text-[11px]">payment_events</code>{" "}
-          篩選（與供應商紀錄／帳務事件頁規則一致）；點列可帶入下方「事件 ID」查完整 JSON。
+          篩選（與分析營運／帳務頁規則一致）；點列可帶入下方「事件 ID」查完整 JSON。
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-8">
@@ -305,10 +305,10 @@ export function DebugOperatorToolboxSummary({ events }: { events: AdminPaymentEv
               </p>
             </div>
             <Link
-              href="/internal/provider-logs"
+              href="/internal/analysis"
               className="text-xs font-medium text-ink-secondary underline-offset-4 hover:text-ink hover:underline"
             >
-              供應商紀錄
+              分析營運
             </Link>
           </div>
           {events.length === 0 ? (
@@ -340,21 +340,21 @@ export function DebugOperatorToolboxSummary({ events }: { events: AdminPaymentEv
         <section className="space-y-3">
           <div className="flex flex-wrap items-end justify-between gap-2 border-b border-surface-border/80 pb-2">
             <div>
-              <h3 className="text-sm font-medium text-ink">供應商層級異常</h3>
+              <h3 className="text-sm font-medium text-ink">帳務層級異常</h3>
               <p className="mt-1 text-xs text-ink-secondary">
                 非 <code className="font-mono text-[10px]">app</code> provider 且事件類型含 failed／error 等關鍵字；此批共{" "}
                 {providerFlagged.length} 筆，列最近 {Math.min(10, providerFlagged.length)} 筆。
               </p>
             </div>
             <Link
-              href="/internal/provider-logs"
+              href="/internal/analysis"
               className="text-xs font-medium text-ink-secondary underline-offset-4 hover:text-ink hover:underline"
             >
               完整列表
             </Link>
           </div>
           {providerFlagged.length === 0 ? (
-            <p className="text-sm text-ink-secondary">此批無符合之供應商異常事件。</p>
+            <p className="text-sm text-ink-secondary">此批無符合之帳務異常事件。</p>
           ) : (
             <ul className="divide-y divide-surface-border rounded-xl border border-surface-border bg-white">
               {providerFlagged.slice(0, 10).map((ev) => (

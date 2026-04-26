@@ -3,11 +3,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { subscriptionStatusLabelZh } from "@/lib/billing/subscription-state";
 import type { AdminHomeSnapshot, AdminPaymentEventRow } from "@/lib/admin/fetch-admin-home";
-import type { InternalRuntimeStatus } from "@/lib/admin/internal-runtime-status";
 import { summarizePaymentPayload } from "@/lib/admin/payment-payload-summary";
 import { PaymentEventBadges, PaymentEventTypeBadge } from "@/components/admin/PaymentEventBadges";
 import { AdminWorkspaceOpsCard } from "@/components/admin/AdminWorkspaceOpsCard";
 import { InternalOpsAuditSection } from "@/components/admin/InternalOpsAuditSection";
+import { InternalSystemEnvCard } from "@/components/admin/InternalSystemEnvCard";
 
 function formatDateTime(iso: string): string {
   try {
@@ -28,40 +28,6 @@ function StatCard({ label, value, hint }: { label: string; value: string | numbe
       <p className="mt-2 text-2xl font-medium tabular-nums tracking-tight text-ink">{value}</p>
       {hint ? <p className="mt-1 text-xs text-ink-secondary">{hint}</p> : null}
     </div>
-  );
-}
-
-function envFlag(ok: boolean): string {
-  return ok ? "已設定" : "未設定";
-}
-
-function InternalRuntimeCard({ runtime }: { runtime: InternalRuntimeStatus }) {
-  return (
-    <Card className="border-surface-border">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">環境與執行時</CardTitle>
-        <CardDescription>不顯示金鑰內容；僅供確認部署變數是否就緒。</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3 text-sm text-ink-secondary">
-        <p>
-          <span className="font-medium text-ink">NODE_ENV</span>{" "}
-          <code className="rounded bg-canvas px-1 font-mono text-xs">{runtime.nodeEnv}</code>
-        </p>
-        <ul className="grid gap-2 sm:grid-cols-2">
-          <li>公開 Supabase URL：{envFlag(runtime.hasPublicSupabaseUrl)}</li>
-          <li>Anon Key：{envFlag(runtime.hasAnonKey)}</li>
-          <li>Service Role：{envFlag(runtime.hasServiceRoleKey)}</li>
-          <li>Stripe Secret：{envFlag(runtime.stripeSecretConfigured)}</li>
-          <li>Stripe Webhook Secret：{envFlag(runtime.stripeWebhookConfigured)}</li>
-        </ul>
-        <p className="text-xs">
-          SUPERADMIN 名單筆數：{runtime.superadminEmailCount}；ADMIN 名單筆數：{runtime.adminEmailCount}
-          {runtime.internalUsesAdminFallback ? (
-            <span className="ml-1 text-amber-900">（內部路由目前過渡為 ADMIN 門檻）</span>
-          ) : null}
-        </p>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -87,13 +53,13 @@ function PaymentEventSnippetList({ rows }: { rows: AdminPaymentEventRow[] }) {
 }
 
 const quickLinks = [
-  { href: "/internal/users", label: "使用者列表", desc: "方案、訂閱與個人額度欄位" },
-  { href: "/internal/workspaces", label: "工作區列表", desc: "共用審查額度與帳務來源" },
-  { href: "/internal/payment-events", label: "帳務事件", desc: "Webhook 與金流稽核紀錄" },
-  { href: "/internal/provider-logs", label: "供應商紀錄", desc: "失敗類事件與除錯線索" },
-  { href: "/internal/debug", label: "偵錯與測試", desc: "原始 JSON、Notify 測試、錯誤摘要" },
-  { href: "/internal/security", label: "安全與權限", desc: "門檻總覽與敏感帳務摘要" },
-  { href: "/internal/audit", label: "稽核紀錄", desc: "篩選動作、操作者、工作區與 JSON 對照" },
+  { href: "/internal/workspaces", label: "工作區", desc: "客戶單位、額度與帳務" },
+  { href: "/internal/analysis", label: "分析營運", desc: "用量、成功率、紀錄與供應商事件" },
+  { href: "/internal/payment-events", label: "帳務", desc: "付款與訂閱事件" },
+  { href: "/internal/audit", label: "稽核", desc: "內部操作軌跡" },
+  { href: "/internal/security", label: "安全", desc: "權限與敏感操作摘要" },
+  { href: "/internal/settings", label: "設定", desc: "環境與系統限制摘要" },
+  { href: "/internal/debug", label: "除錯工具", desc: "技術用測試與 JSON" },
 ];
 
 export function AdminHomeDashboard({ snapshot }: { snapshot: AdminHomeSnapshot }) {
@@ -108,7 +74,15 @@ export function AdminHomeDashboard({ snapshot }: { snapshot: AdminHomeSnapshot }
     recentBillingNotifyEvents,
     recentProviderFailureEvents,
     recentInternalOpsAudit,
+    analysisOverview,
   } = snapshot;
+
+  const ao = analysisOverview;
+  const pipelineTotal = ao.openaiCountSample + ao.mockCountSample;
+  const openaiRatio =
+    pipelineTotal > 0 ? `${Math.round((ao.openaiCountSample / pipelineTotal) * 100)}%` : "—";
+  const mockRatio =
+    pipelineTotal > 0 ? `${Math.round((ao.mockCountSample / pipelineTotal) * 100)}%` : "—";
 
   return (
     <div className="space-y-10">
@@ -119,9 +93,8 @@ export function AdminHomeDashboard({ snapshot }: { snapshot: AdminHomeSnapshot }
           <Badge tone="amber">Beta</Badge>
         </div>
         <p className="max-w-2xl text-[15px] leading-relaxed text-ink-secondary">
-          本月週期以 UTC <span className="font-mono text-ink">{yymm}</span> 與工作區用量欄位為準；審查次數為{" "}
-          <code className="rounded bg-canvas px-1 py-0.5 font-mono text-xs">analysis_logs</code>{" "}
-          自月初起筆數。
+          今日與近 7 日分析活動、本月審查累計（UTC <span className="font-mono text-ink">{yymm}</span>
+          ）、帳務與稽核摘要。細部請至各分頁。
         </p>
       </div>
 
@@ -132,9 +105,9 @@ export function AdminHomeDashboard({ snapshot }: { snapshot: AdminHomeSnapshot }
       ) : null}
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <InternalRuntimeCard runtime={runtime} />
+        <InternalSystemEnvCard runtime={runtime} />
         <section>
-          <h2 className="mb-3 text-sm font-medium text-ink">快速連結</h2>
+          <h2 className="mb-3 text-sm font-medium text-ink">快速操作</h2>
           <div className="grid gap-3 sm:grid-cols-1">
             {quickLinks.map((q) => (
               <Link
@@ -146,14 +119,45 @@ export function AdminHomeDashboard({ snapshot }: { snapshot: AdminHomeSnapshot }
                 <p className="mt-1 text-xs text-ink-secondary">{q.desc}</p>
               </Link>
             ))}
+            <Link
+              href="/internal/users"
+              className="group rounded-xl border border-dashed border-surface-border bg-canvas/30 px-4 py-3 text-sm text-ink-secondary transition hover:border-ink/15 hover:bg-white/80"
+            >
+              <span className="font-medium text-ink group-hover:underline">用戶</span>
+              <span className="mt-1 block text-xs">查帳號、所屬工作區與內部權限</span>
+            </Link>
           </div>
         </section>
       </div>
 
       {snapshot.ok ? (
         <>
+          <div>
+            <h2 className="mb-3 text-sm font-medium text-ink">分析與活躍度（今日／近 7 日）</h2>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <StatCard label="今日分析次數" value={ao.todayCount} hint="analysis_logs" />
+              <StatCard label="近 7 日分析次數" value={ao.weekCount} />
+              <StatCard
+                label="近 7 日 · 文字／圖片／PDF"
+                value={`${ao.byInputWeek.text}／${ao.byInputWeek.image}／${ao.byInputWeek.pdf}`}
+                hint={ao.byInputWeek.unknown ? `未標型別 ${ao.byInputWeek.unknown}` : undefined}
+              />
+              <StatCard
+                label="分析 pipeline（樣本）"
+                value={`OpenAI ${openaiRatio}`}
+                hint={`mock ${mockRatio} · 樣本 ${ao.pipelineSampleSize} 筆`}
+              />
+              <StatCard label="近 7 日活躍工作區（估）" value={ao.activeWorkspacesWeekApprox} hint="最多 4000 筆去重" />
+              <StatCard label="近 7 日新註冊用戶" value={ao.newUsersWeek} />
+              <StatCard label="付費中工作區（Pro＋有效訂閱）" value={ao.paidWorkspacesCount} />
+            </div>
+            {ao.error ? (
+              <p className="mt-2 text-xs text-amber-900">分析摘要載入：{ao.error}</p>
+            ) : null}
+          </div>
+
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-            <StatCard label="註冊使用者" value={totals.userCount} />
+            <StatCard label="註冊使用者（全站）" value={totals.userCount} />
             <StatCard label="總工作區數" value={totals.workspaceCount} hint="含個人預設與團隊" />
             <StatCard label="多帳號共用工作區數" value={totals.sharedWorkspaceCount} hint="成員數大於 1" />
             <StatCard label="本月審查次數" value={totals.analysesThisMonth} hint="analysis_logs 筆數" />
@@ -166,10 +170,10 @@ export function AdminHomeDashboard({ snapshot }: { snapshot: AdminHomeSnapshot }
                 <div className="flex items-center justify-between gap-2">
                   <CardTitle className="text-base">近期供應商失敗／異常</CardTitle>
                   <Link
-                    href="/internal/provider-logs"
+                    href="/internal/analysis"
                     className="text-xs font-medium text-ink-secondary underline-offset-4 hover:text-ink hover:underline"
                   >
-                    供應商紀錄
+                    分析營運
                   </Link>
                 </div>
                 <CardDescription>
@@ -346,14 +350,14 @@ export function AdminHomeDashboard({ snapshot }: { snapshot: AdminHomeSnapshot }
                 <div className="flex items-center justify-between gap-2">
                   <CardTitle className="text-base">帳務層級異常／失敗事件</CardTitle>
                   <Link
-                    href="/internal/provider-logs"
+                    href="/internal/analysis"
                     className="text-xs font-medium text-ink-secondary underline-offset-4 hover:text-ink hover:underline"
                   >
                     詳情
                   </Link>
                 </div>
                 <CardDescription>
-                  依事件類型關鍵字篩選（failed、error 等），規則與「供應商紀錄」頁相同；非完整 API Log
+                  依事件類型關鍵字篩選（failed、error 等），規則與「分析營運」帳務區相同；非完整 API Log
                 </CardDescription>
               </CardHeader>
               <CardContent>

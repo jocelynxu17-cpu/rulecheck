@@ -216,15 +216,18 @@ export default async function AdminWorkspaceDetailPage({ params, searchParams }:
         <Link href="/internal/workspaces" className="text-sm font-medium text-ink underline-offset-4 hover:underline">
           ← 返回工作區列表
         </Link>
-        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-secondary">管理 · 工作區營運</p>
+        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-secondary">工作區 · 全景</p>
         <h1 className="text-2xl font-medium tracking-tight text-ink sm:text-[1.625rem]">{workspace.name}</h1>
+        <p className="mt-1 max-w-2xl text-sm text-ink-secondary">
+          單一客戶用量、分析、帳務與稽核匯總；用於快速判斷「用得好不好、哪裡出問題、要不要手動介入」。
+        </p>
         <p className="font-mono text-xs text-ink-secondary">{workspace.id}</p>
       </div>
 
       <Card className="border-surface-border">
         <CardHeader>
-          <CardTitle className="text-base">帳務與額度（SSOT）</CardTitle>
-          <CardDescription>與帳務頁、儀表板、分析 API 讀取之工作區列一致。</CardDescription>
+          <CardTitle className="text-base">方案與額度</CardTitle>
+          <CardDescription>工作區為帳務與額度 SSOT；與前台儀表板、分析 API 讀取一致。</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 text-sm sm:grid-cols-2">
           <div>
@@ -288,9 +291,15 @@ export default async function AdminWorkspaceDetailPage({ params, searchParams }:
               href={`/internal/payment-events?workspace=${encodeURIComponent(id)}`}
               className="font-medium text-ink underline-offset-4 hover:underline"
             >
-              帳務事件（已篩選）
+              帳務（已篩選）
             </Link>
             — 依 payload 之 workspace_id 或成員 user_id。
+          </p>
+          <p>
+            <Link href="/internal/analysis" className="font-medium text-ink underline-offset-4 hover:underline">
+              分析營運
+            </Link>
+            — 全站分析次數與帳務層級異常摘要。
           </p>
           <p>
             <Link

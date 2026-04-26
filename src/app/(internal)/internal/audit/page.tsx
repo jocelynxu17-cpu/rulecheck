@@ -46,9 +46,9 @@ export default async function InternalAuditPage({ searchParams }: PageProps) {
     <div className="space-y-8 pb-8">
       <div className="space-y-2">
         <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-secondary">內部營運</p>
-        <h1 className="text-2xl font-medium tracking-tight text-ink sm:text-[1.625rem]">稽核紀錄</h1>
+        <h1 className="text-2xl font-medium tracking-tight text-ink sm:text-[1.625rem]">稽核</h1>
         <p className="max-w-2xl text-sm text-ink-secondary">
-          依動作類型、操作者信箱、目標／工作區 ID 篩選；帳務 notify 等事件可比對 JSON 內嵌之 workspace。
+          內部操作軌跡：操作者、動作、目標與 before／after。可依動作類型、信箱、目標 ID 篩選。
         </p>
       </div>
 

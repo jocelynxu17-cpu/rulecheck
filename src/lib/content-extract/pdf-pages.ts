@@ -1,11 +1,12 @@
 import type { PdfPageText } from "@/types/analysis";
+import { PDF_MAX_PAGES } from "@/lib/analyze/input-limits";
 import {
   assessPdfTextLayer,
   normalizePdfPageTextForStorage,
   type PdfTextLayerMetrics,
 } from "@/lib/content-extract/pdf-text-layer-quality";
 
-export const PDF_MAX_PAGES = 50;
+export { PDF_MAX_PAGES };
 
 export type PdfInvalidTextLayerPage = {
   pageNumber: number;

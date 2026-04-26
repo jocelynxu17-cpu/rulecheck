@@ -9,6 +9,7 @@ import {
   billingProviderLabelZh,
   subscriptionStatusLabelZh,
 } from "@/lib/billing/subscription-state";
+import { canAccessInternalOps } from "@/lib/admin/internal-ops-access";
 
 export type AdminWorkspaceRow = {
   id: string;
@@ -22,6 +23,8 @@ export type AdminWorkspaceRow = {
   units_used_month: number;
   usage_month: string;
   created_at: string;
+  owner_email?: string | null;
+  member_count?: number;
 };
 
 export type AdminUserRow = {
@@ -33,6 +36,7 @@ export type AdminUserRow = {
   analyses_used_month: number;
   usage_month: string;
   created_at: string;
+  workspace_membership_count?: number;
 };
 
 function formatPeriodEndTaipeiShort(iso: string | null | undefined): string {
@@ -44,6 +48,18 @@ function formatPeriodEndTaipeiShort(iso: string | null | undefined): string {
     }).format(new Date(iso));
   } catch {
     return "—";
+  }
+}
+
+function formatDateTimeTaipeiShort(iso: string): string {
+  try {
+    return new Intl.DateTimeFormat("zh-TW", {
+      dateStyle: "short",
+      timeStyle: "short",
+      timeZone: "Asia/Taipei",
+    }).format(new Date(iso));
+  } catch {
+    return iso;
   }
 }
 
@@ -108,10 +124,9 @@ export function AdminPanel({
       {showWorkspaces ? (
       <Card>
         <CardHeader>
-          <CardTitle>工作區（多帳號共用審查額度）</CardTitle>
+          <CardTitle>工作區</CardTitle>
           <CardDescription>
-            <span className="font-medium text-ink">帳務欄位以工作區為唯一來源（SSOT）</span>
-            ：方案、訂閱狀態、帳務來源、週期結束、額度與用量。下列「使用者」表為個人列備查。
+            以工作區為商業與額度單位；方案、訂閱、帳務來源與用量欄位為營運主線。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -119,10 +134,12 @@ export function AdminPanel({
             <p className="text-sm text-amber-900">{listError}</p>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-surface-border">
-              <table className="w-full min-w-[1180px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[1280px] border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-surface-border bg-canvas text-xs font-medium uppercase tracking-wide text-ink-secondary">
                     <th className="px-4 py-3">工作區</th>
+                    <th className="px-4 py-3">擁有者 Email</th>
+                    <th className="px-4 py-3">成員數</th>
                     <th className="px-4 py-3">方案</th>
                     <th className="px-4 py-3">訂閱狀態</th>
                     <th className="px-4 py-3">帳務來源</th>
@@ -145,6 +162,10 @@ export function AdminPanel({
                             {w.name}
                           </Link>
                         </td>
+                        <td className="max-w-[200px] truncate px-4 py-3 text-xs text-ink-secondary">
+                          {w.owner_email ?? "—"}
+                        </td>
+                        <td className="px-4 py-3 tabular-nums text-ink-secondary">{w.member_count ?? "—"}</td>
                         <td className="px-4 py-3 text-ink-secondary">{w.plan ?? "—"}</td>
                         <td className="px-4 py-3 text-ink-secondary">{subscriptionStatusLabelZh(w.subscription_status)}</td>
                         <td className="px-4 py-3 text-ink-secondary">{billingProviderLabelZh(w.billing_provider) ?? "—"}</td>
@@ -168,18 +189,21 @@ export function AdminPanel({
       {showUsers ? (
       <Card>
         <CardHeader>
-          <CardTitle>使用者</CardTitle>
-          <CardDescription>個人帳號層級的方案欄位（與工作區帳務並存，便於對帳）。</CardDescription>
+          <CardTitle>用戶</CardTitle>
+          <CardDescription>帳號層級摘要；額度與訂閱以工作區為準時請搭配工作區頁。</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {usersError ? (
             <p className="text-sm text-amber-900">{usersError}</p>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-surface-border">
-              <table className="w-full min-w-[800px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[980px] border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-surface-border bg-canvas text-xs font-medium uppercase tracking-wide text-ink-secondary">
                     <th className="px-4 py-3">Email</th>
+                    <th className="px-4 py-3">註冊時間</th>
+                    <th className="px-4 py-3">所屬工作區數</th>
+                    <th className="px-4 py-3">內部權限</th>
                     <th className="px-4 py-3">方案</th>
                     <th className="px-4 py-3">訂閱狀態</th>
                     <th className="px-4 py-3">個人額度欄位</th>
@@ -192,6 +216,15 @@ export function AdminPanel({
                     return (
                       <tr key={u.id} className="border-b border-surface-border/80 last:border-0">
                         <td className="max-w-[240px] truncate px-4 py-3 font-medium text-ink">{u.email ?? "—"}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-xs text-ink-secondary">
+                          {formatDateTimeTaipeiShort(u.created_at)}
+                        </td>
+                        <td className="px-4 py-3 tabular-nums text-ink-secondary">
+                          {u.workspace_membership_count ?? 0}
+                        </td>
+                        <td className="px-4 py-3 text-ink-secondary">
+                          {canAccessInternalOps(u.email) ? "是" : "否"}
+                        </td>
                         <td className="px-4 py-3 text-ink-secondary">{u.plan ?? "—"}</td>
                         <td className="px-4 py-3 text-ink-secondary">{subscriptionStatusLabelZh(u.subscription_status)}</td>
                         <td className="px-4 py-3 text-ink-secondary">{u.monthly_analysis_quota}</td>

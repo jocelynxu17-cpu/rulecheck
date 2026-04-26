@@ -5,13 +5,14 @@ import { usePathname } from "next/navigation";
 
 const links = [
   { href: "/internal", label: "總覽", match: "exact" as const },
-  { href: "/internal/users", label: "使用者", match: "prefix" as const },
+  { href: "/internal/users", label: "用戶", match: "prefix" as const },
   { href: "/internal/workspaces", label: "工作區", match: "prefix" as const },
-  { href: "/internal/payment-events", label: "帳務事件", match: "prefix" as const },
-  { href: "/internal/provider-logs", label: "供應商紀錄", match: "prefix" as const },
-  { href: "/internal/debug", label: "偵錯", match: "prefix" as const },
-  { href: "/internal/security", label: "安全", match: "prefix" as const },
+  { href: "/internal/analysis", label: "分析營運", match: "prefix" as const },
+  { href: "/internal/payment-events", label: "帳務", match: "prefix" as const },
   { href: "/internal/audit", label: "稽核", match: "prefix" as const },
+  { href: "/internal/security", label: "安全", match: "prefix" as const },
+  { href: "/internal/settings", label: "設定", match: "prefix" as const },
+  { href: "/internal/debug", label: "除錯工具", match: "prefix" as const },
 ];
 
 export function AdminSubnav() {

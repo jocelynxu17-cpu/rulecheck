@@ -35,9 +35,9 @@ export default async function AdminPaymentEventsPage({ searchParams }: PageProps
   return (
     <div className="space-y-8">
       <div className="space-y-2">
-        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-secondary">管理</p>
+        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-secondary">內部營運</p>
         <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-2xl font-medium tracking-tight text-ink sm:text-[1.625rem]">帳務事件</h1>
+          <h1 className="text-2xl font-medium tracking-tight text-ink sm:text-[1.625rem]">帳務</h1>
           {workspaceId ? (
             <span className="rounded-md border border-surface-border bg-canvas px-2 py-0.5 text-[11px] font-medium text-ink-secondary">
               工作區篩選
@@ -45,8 +45,9 @@ export default async function AdminPaymentEventsPage({ searchParams }: PageProps
           ) : null}
         </div>
         <p className="max-w-2xl text-[15px] leading-relaxed text-ink-secondary">
-          Webhook 與金流流程寫入之 <code className="rounded bg-canvas px-1 font-mono text-xs">payment_events</code>
-          ，含 idempotency 去重。列表以標籤輔助判讀，摘要為精簡後的 payload。
+          帳務與方案營運中心：Webhook 與金流寫入之{" "}
+          <code className="rounded bg-canvas px-1 font-mono text-xs">payment_events</code>
+          （含 idempotency 去重）。以工作區為核心對帳；摘要為精簡後 payload。
           {workspaceId ? (
             <>
               {" "}

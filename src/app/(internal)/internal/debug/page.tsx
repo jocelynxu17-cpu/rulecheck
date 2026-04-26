@@ -21,12 +21,13 @@ function firstString(v: string | string[] | undefined): string {
 }
 
 const quick = [
-  { href: "/internal/audit", label: "稽核紀錄" },
-  { href: "/internal/payment-events", label: "帳務事件" },
-  { href: "/internal/provider-logs", label: "供應商紀錄" },
-  { href: "/internal/workspaces", label: "工作區列表" },
-  { href: "/internal/security", label: "安全總覽" },
-  { href: "/internal", label: "內部總覽" },
+  { href: "/internal", label: "總覽" },
+  { href: "/internal/workspaces", label: "工作區" },
+  { href: "/internal/analysis", label: "分析營運" },
+  { href: "/internal/payment-events", label: "帳務" },
+  { href: "/internal/audit", label: "稽核" },
+  { href: "/internal/security", label: "安全" },
+  { href: "/internal/settings", label: "設定" },
 ];
 
 export default async function InternalDebugPage({ searchParams }: PageProps) {
@@ -42,11 +43,11 @@ export default async function InternalDebugPage({ searchParams }: PageProps) {
     <div className="space-y-10 pb-8">
       <div className="space-y-2">
         <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-secondary">內部營運</p>
-        <h1 className="text-2xl font-medium tracking-tight text-ink sm:text-[1.625rem]">營運除錯工具箱</h1>
+        <h1 className="text-2xl font-medium tracking-tight text-ink sm:text-[1.625rem]">除錯工具</h1>
         <p className="max-w-2xl text-[15px] leading-relaxed text-ink-secondary">
-          集中查工作區與帳務事件原始列、檢視近期異常摘要，以及測試 Notify。權限與其他{" "}
+          技術用：工作區／帳務事件原始列、異常摘要、Notify 測試。日常營運請以總覽與各分頁為主。權限與{" "}
           <code className="rounded bg-canvas px-1 font-mono text-xs">/internal</code>{" "}
-          頁面相同（SUPERADMIN_EMAILS；未設定時為 ADMIN_EMAILS）；請勿外流查詢結果或金鑰。
+          相同（SUPERADMIN_EMAILS；未設定時為 ADMIN_EMAILS）；請勿外流查詢結果或金鑰。
         </p>
       </div>
 
