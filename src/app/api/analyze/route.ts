@@ -7,7 +7,8 @@ import { analyzeImageWithOpenAIVision } from "@/lib/analyzer-openai";
 import { analyzeTextMock } from "@/lib/analyzer-mock";
 import { IMAGE_MAX_BYTES, PDF_MAX_BYTES } from "@/lib/analyze/input-limits";
 import { resolveWorkspaceForUser } from "@/lib/workspace/resolve-workspace";
-import type { AnalysisInputKind, AnalysisMeta, AnalysisResult, PdfPageAnalysis } from "@/types/analysis";
+import type { AnalysisInputKind, AnalysisMeta, AnalysisResult, PdfPageAnalysis, PdfPageText } from "@/types/analysis";
+import { PdfTextLayerRejectedError } from "@/lib/content-extract/pdf-pages";
 import { normalizeAnalysisResult } from "@/lib/analysis-normalize";
 import { GUEST_ANALYSIS_COOKIE } from "@/lib/constants";
 
@@ -440,7 +441,7 @@ async function postAnalyze(request: Request) {
         return NextResponse.json(errPayload("PDF 檔過大（上限 20MB）。", "PDF_TOO_LARGE"), { status: 400 });
       }
       const buf = Buffer.from(await file.arrayBuffer());
-      let pages: { pageNumber: number; text: string }[];
+      let pages: PdfPageText[];
       let pageCount: number;
       try {
         const { extractPdfPages, pdfUnitsFromPageCount } = await import("@/lib/content-extract/pdf-pages");
@@ -455,6 +456,19 @@ async function postAnalyze(request: Request) {
           fileBytes: file.size,
         });
       } catch (e) {
+        if (e instanceof PdfTextLayerRejectedError) {
+          console.log("[analyze] PDF text layer rejected", {
+            code: e.code,
+            invalidPageCount: e.invalidPages.length,
+            invalidPages: e.invalidPages,
+          });
+          return NextResponse.json(
+            errPayload("此 PDF 不含可讀文字層，請上傳可選取文字的 PDF。", "PDF_NO_TEXT_LAYER", {
+              invalidPages: e.invalidPages,
+            }),
+            { status: 400 }
+          );
+        }
         logCaught("[analyze] PDF parse failure", e);
         const err = e instanceof Error ? e : new Error(String(e));
         return NextResponse.json(
