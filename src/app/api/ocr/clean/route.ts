@@ -3,7 +3,7 @@
  */
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { cleanOcrTextWithOpenAI } from "@/lib/ocr/ocr-gpt-cleanup";
+import { cleanOcrTextWithOpenAI, type GptOcrCleanResult } from "@/lib/ocr/ocr-gpt-cleanup";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -42,14 +42,38 @@ export async function POST(request: Request) {
     return errJson(`文字過長（上限 ${MAX_BODY} 字元）。`, "TEXT_TOO_LONG", 400);
   }
 
-  const { textClean, source } = await cleanOcrTextWithOpenAI(text);
+  console.info("[api/ocr/clean] deployment context:", {
+    NODE_ENV: process.env.NODE_ENV ?? "(unset)",
+    OPENAI_API_KEY_PRESENT: Boolean(process.env.OPENAI_API_KEY),
+  });
+
+  const rawResult = await cleanOcrTextWithOpenAI(text);
+  const { _openAiCaughtError, ...result } = rawResult as GptOcrCleanResult & {
+    _openAiCaughtError?: unknown;
+  };
+
+  if (_openAiCaughtError !== undefined) {
+    console.error("[api/ocr/clean] OpenAI caught error (original):", _openAiCaughtError);
+    if (_openAiCaughtError instanceof Error && _openAiCaughtError.stack) {
+      console.error(_openAiCaughtError.stack);
+    }
+  }
+
+  if (result.source === "fallback") {
+    console.error("[api/ocr/clean] GPT clean fallback:", {
+      code: result.code,
+      debugMessage: result.debugMessage,
+      labelZh: result.labelZh,
+      NODE_ENV: process.env.NODE_ENV ?? "(unset)",
+      OPENAI_API_KEY_PRESENT: Boolean(process.env.OPENAI_API_KEY),
+    });
+  }
 
   return NextResponse.json({
-    textClean,
-    source,
-    labelZh:
-      source === "openai"
-        ? "已套用 GPT 可讀性清理（空格、斷行與明顯雜訊；未新增行銷內容）。"
-        : "未套用 GPT 清理（無金鑰或處理失敗），輸出與輸入相同。",
+    textClean: result.textClean,
+    source: result.source,
+    code: result.code,
+    labelZh: result.labelZh,
+    debugMessage: result.debugMessage,
   });
 }

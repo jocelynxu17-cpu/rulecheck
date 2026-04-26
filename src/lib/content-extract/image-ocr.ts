@@ -10,6 +10,7 @@ export type {
   OcrLineSnippet,
   OcrBlockSnippet,
   OcrGptCleanupMeta,
+  GptOcrCleanCode,
 } from "@/lib/ocr/tesseract-page-result";
 export { normalizeOcrConfidence } from "@/lib/ocr/tesseract-page-result";
 

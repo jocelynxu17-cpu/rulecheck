@@ -129,6 +129,10 @@ export function AnalyzeView() {
   const [imageOcrNormHintZh, setImageOcrNormHintZh] = useState<string | null>(null);
   /** GPT 清理層說明（繁中） */
   const [imageOcrGptHintZh, setImageOcrGptHintZh] = useState<string | null>(null);
+  /** 最後一次 `/api/ocr/clean` 之機器可讀碼（成功為 GPT_CLEAN_OK） */
+  const [imageOcrGptCleanCode, setImageOcrGptCleanCode] = useState<string | null>(null);
+  /** 最後一次 GPT 清理之安全除錯訊息 */
+  const [imageOcrGptCleanDebug, setImageOcrGptCleanDebug] = useState<string | null>(null);
   /** 最後一次「擷取文字」API 回傳之整頁代表信心（0–1）；手動編輯文字時仍保留供對照。 */
   const [imageOcrPreviewConfidence, setImageOcrPreviewConfidence] = useState<number | null>(null);
   const [imageOcrPreviewPercent, setImageOcrPreviewPercent] = useState<number | null>(null);
@@ -225,6 +229,8 @@ export function AnalyzeView() {
       setOcrProgress(1);
       let clean = display;
       let gptHint: string | null = null;
+      let gptCode: string | null = null;
+      let gptDebug: string | null = null;
       try {
         const cleanRes = await fetch("/api/ocr/clean", {
           method: "POST",
@@ -232,22 +238,37 @@ export function AnalyzeView() {
           credentials: "same-origin",
           body: JSON.stringify({ text: display }),
         });
+        const j = (await cleanRes.json().catch(() => ({}))) as {
+          textClean?: string;
+          labelZh?: string;
+          code?: string;
+          debugMessage?: string;
+          error?: string;
+        };
         if (cleanRes.ok) {
-          const j = (await cleanRes.json()) as { textClean?: string; labelZh?: string };
           if (typeof j.textClean === "string") {
             clean = j.textClean.trim() || display;
-            gptHint = typeof j.labelZh === "string" ? j.labelZh : null;
           }
+          gptHint = typeof j.labelZh === "string" ? j.labelZh : null;
+          gptCode = typeof j.code === "string" ? j.code : null;
+          gptDebug = typeof j.debugMessage === "string" ? j.debugMessage : null;
         } else {
           gptHint = "GPT 清理端點未成功，已使用字形校正後文字。";
+          gptCode = "GPT_CLEAN_UNKNOWN_ERROR";
+          gptDebug = `HTTP ${cleanRes.status}${j.error ? `: ${j.error}` : ""}`.slice(0, 800);
         }
-      } catch {
-        /* 網路錯誤時維持字形校正層 */
+      } catch (netErr) {
+        gptHint = "無法連線至 GPT 清理服務，已使用字形校正後文字。";
+        gptCode = "GPT_CLEAN_UNKNOWN_ERROR";
+        gptDebug =
+          `[client] ${netErr instanceof Error ? `${netErr.name}: ${netErr.message}` : String(netErr)}`.slice(0, 800);
       }
 
       setImageOcrTextClean(clean);
       setImageOcrText(clean);
       setImageOcrGptHintZh(gptHint);
+      setImageOcrGptCleanCode(gptCode);
+      setImageOcrGptCleanDebug(gptDebug);
 
       const { lines: rebuiltLines, blocks: rebuiltBlocks } = rebuildOcrLinePreviewsFromFullText(
         clean,
@@ -523,6 +544,8 @@ export function AnalyzeView() {
                   setImageOcrTextClean("");
                   setImageOcrNormHintZh(null);
                   setImageOcrGptHintZh(null);
+                  setImageOcrGptCleanCode(null);
+                  setImageOcrGptCleanDebug(null);
                   setImageOcrPreviewConfidence(null);
                   setImageOcrPreviewPercent(null);
                   setImageOcrLines(null);
@@ -614,12 +637,25 @@ export function AnalyzeView() {
                       {imageOcrGptHintZh ? (
                         <p className="text-[11px] leading-relaxed text-ink-secondary">{imageOcrGptHintZh}</p>
                       ) : null}
+                      {imageOcrGptCleanCode && imageOcrGptCleanCode !== "GPT_CLEAN_OK" ? (
+                        <p className="rounded-md border border-amber-200/90 bg-amber-50/80 px-2 py-1.5 font-mono text-[11px] leading-relaxed text-amber-950">
+                          <span className="font-semibold">{imageOcrGptCleanCode}</span>
+                          {imageOcrGptCleanDebug ? (
+                            <>
+                              <span className="mx-1 text-amber-800/90">·</span>
+                              <span className="break-all text-amber-900/95">{imageOcrGptCleanDebug}</span>
+                            </>
+                          ) : null}
+                        </p>
+                      ) : null}
                       <Textarea
                         value={imageOcrText}
                         onChange={(e) => {
                           setImageOcrText(e.target.value);
                           setImageOcrNormHintZh(null);
                           setImageOcrGptHintZh(null);
+                          setImageOcrGptCleanCode(null);
+                          setImageOcrGptCleanDebug(null);
                         }}
                         placeholder="選填：按「擷取文字」帶入（字形校正 → GPT 清理），或手動貼上／修正…"
                         className="min-h-[160px]"

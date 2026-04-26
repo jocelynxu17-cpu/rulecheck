@@ -48,10 +48,23 @@ export type OcrDisplayNormalizationMeta = {
   labelZh: string;
 };
 
+/** `/api/ocr/clean` 與 `cleanOcrTextWithOpenAI` 之機器可讀狀態碼 */
+export type GptOcrCleanCode =
+  | "GPT_CLEAN_OK"
+  | "GPT_CLEAN_NO_API_KEY"
+  | "GPT_CLEAN_OPENAI_REQUEST_FAILED"
+  | "GPT_CLEAN_TIMEOUT"
+  | "GPT_CLEAN_INVALID_RESPONSE"
+  | "GPT_CLEAN_AUTH_ERROR"
+  | "GPT_CLEAN_UNKNOWN_ERROR";
+
 /** GPT 可讀性清理（空格、斷行、雜訊）之中繼說明 */
 export type OcrGptCleanupMeta = {
   source: "openai" | "fallback";
   labelZh: string;
+  code?: GptOcrCleanCode;
+  /** 安全、簡短之除錯說明（不含金鑰） */
+  debugMessage?: string;
 };
 
 export type OcrDetailedResult = {
