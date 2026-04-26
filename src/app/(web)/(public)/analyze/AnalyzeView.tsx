@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { detectHanScriptSummary } from "@/lib/ocr/ocr-han-script";
-import { rebuildOcrLinePreviewsFromFullText } from "@/lib/ocr/ocr-line-rebuild";
 import type { AnalysisResult, ImageDualTrackReport } from "@/types/analysis";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -17,17 +15,9 @@ import { toast } from "sonner";
 import { useOptionalWorkspace } from "@/components/workspace/WorkspaceContext";
 import { Badge } from "@/components/ui/badge";
 import { PdfReportSection } from "@/components/analyze/PdfReportSection";
+import type { OcrDetailedResult } from "@/lib/ocr/tesseract-page-result";
 
 type Tab = "text" | "image" | "pdf";
-
-type OcrPreviewLine = { text: string; confidence: number; confidencePercent: number };
-type OcrPreviewBlock = {
-  text: string;
-  confidence: number;
-  confidencePercent: number;
-  lineCount: number;
-  lines: OcrPreviewLine[];
-};
 
 /** 依整頁代表信心（0–1）分級，供 UI 標示。 */
 function ocrConfidenceTier(conf01: number): "高" | "中" | "低" {
@@ -42,71 +32,24 @@ function formatOcrPercent(conf01: number | null | undefined, explicitPercent?: n
   return `${Math.round(conf01 * 100)}%`;
 }
 
-function ImageDualTrackSummaryBlock(props: {
-  report: ImageDualTrackReport;
-  serverOcrConfidence?: number | null;
-  previewConfidence01: number | null;
-  previewPercent: number | null;
-}) {
-  const { report, serverOcrConfidence, previewConfidence01, previewPercent } = props;
-  const conf01 = report.ocrConfidence ?? serverOcrConfidence ?? previewConfidence01;
-  const hasServerConf = serverOcrConfidence != null && Number.isFinite(serverOcrConfidence);
-  const hasPreviewOnly = !hasServerConf && previewConfidence01 != null && Number.isFinite(previewConfidence01);
-
+function ImageDualTrackSummaryBlock({ report }: { report: ImageDualTrackReport }) {
   return (
     <>
       <div className="space-y-2">
-        <p className="text-xs font-medium text-ink-secondary">圖像 AI 摘要（主軌）</p>
+        <p className="text-xs font-medium text-ink-secondary">摘要</p>
         <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink">{report.visionSummary}</p>
       </div>
       {report.textPassSummary ? (
         <div className="space-y-2 rounded-lg border border-surface-border bg-canvas/80 p-3">
-          <p className="text-xs font-medium text-ink-secondary">文字軌合規摘要（選讀驗證，不作主判）</p>
+          <p className="text-xs font-medium text-ink-secondary">參考摘要</p>
           <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink">{report.textPassSummary}</p>
-          {report.textPassFindingsCount != null ? (
-            <p className="text-xs text-ink-secondary">文字軌偵測項目數（未併入主清單）：{report.textPassFindingsCount}</p>
-          ) : null}
         </div>
       ) : null}
       <div className="space-y-2">
-        <p className="text-xs font-medium text-ink-secondary">輔助層：OCR／編輯文字（可於送檢前編輯）</p>
-        <p className="text-xs leading-relaxed text-ink-secondary">
-          此段為擷取或手動編輯之參考文字，供信心顯示、對照與選用高亮；
-          <strong className="font-medium text-ink">合規主結果</strong>
-          （摘要、發現、法遵說明、改寫）以圖像 AI 為準。OCR 不佳時不影響主軌分析。
-        </p>
+        <p className="text-xs font-medium text-ink-secondary">辨識文字</p>
         <div className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border border-surface-border bg-canvas p-3 text-sm text-ink">
-          {report.ocrSupportText.trim() ? report.ocrSupportText : "（送檢時未帶入文字／OCR 為空）"}
+          {report.ocrSupportText.trim() ? report.ocrSupportText : "（未附文字）"}
         </div>
-        {hasServerConf ? (
-          <div className="flex flex-wrap items-center gap-2 text-ink">
-            <span className="text-sm">
-              OCR 辨識信心（檢測階段）：{" "}
-              <span className="font-semibold tabular-nums">{formatOcrPercent(serverOcrConfidence)}</span>
-            </span>
-            <span className="rounded-md bg-zinc-200/80 px-2 py-0.5 text-xs font-medium text-zinc-800">
-              {ocrConfidenceTier(serverOcrConfidence!)}
-            </span>
-            <span className="text-xs text-ink-secondary">（有文字之行平均）</span>
-          </div>
-        ) : hasPreviewOnly ? (
-          <div className="space-y-1 text-sm text-ink-secondary">
-            <p>送交檢測時使用您編輯後的文字，以下為瀏覽器擷取時之信心參考：</p>
-            <div className="flex flex-wrap items-center gap-2 text-ink">
-              <span className="font-semibold tabular-nums">{formatOcrPercent(previewConfidence01, previewPercent ?? undefined)}</span>
-              <span className="rounded-md bg-zinc-200/80 px-2 py-0.5 text-xs font-medium text-zinc-800">
-                {ocrConfidenceTier(previewConfidence01!)}
-              </span>
-            </div>
-          </div>
-        ) : conf01 != null && Number.isFinite(conf01) ? (
-          <div className="flex flex-wrap items-center gap-2 text-sm text-ink">
-            <span>OCR 信心參考：{formatOcrPercent(conf01)}</span>
-            <span className="rounded-md bg-zinc-200/80 px-2 py-0.5 text-xs font-medium text-zinc-800">{ocrConfidenceTier(conf01)}</span>
-          </div>
-        ) : (
-          <p className="text-sm text-ink-secondary">未帶入伺服器 OCR 行級信心；您仍可於送檢前編輯文字。</p>
-        )}
       </div>
     </>
   );
@@ -136,17 +79,9 @@ export function AnalyzeView() {
   /** 最後一次「擷取文字」API 回傳之整頁代表信心（0–1）；手動編輯文字時仍保留供對照。 */
   const [imageOcrPreviewConfidence, setImageOcrPreviewConfidence] = useState<number | null>(null);
   const [imageOcrPreviewPercent, setImageOcrPreviewPercent] = useState<number | null>(null);
-  const [imageOcrLines, setImageOcrLines] = useState<OcrPreviewLine[] | null>(null);
-  const [imageOcrBlocks, setImageOcrBlocks] = useState<OcrPreviewBlock[] | null>(null);
   const [ocrBusy, setOcrBusy] = useState(false);
   const [ocrProgress, setOcrProgress] = useState<number | null>(null);
   const [ocrClientError, setOcrClientError] = useState<{ code: string; message: string } | null>(null);
-  /** 多軌 OCR 品質提示（繁中） */
-  const [ocrQualityBanner, setOcrQualityBanner] = useState<{
-    variant: "warn" | "caution";
-    message: string;
-    passHint: string;
-  } | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -197,12 +132,64 @@ export function AnalyzeView() {
     return displayTextForHighlight;
   }, [result, text, displayTextForHighlight]);
 
-  /** 依目前編輯框內容（顯示層文字）即時統計字形摘要 */
-  const imageOcrHanLabelZh = useMemo(() => {
-    const t = imageOcrText.trim();
-    if (!t) return null;
-    return detectHanScriptSummary(t).labelZh;
-  }, [imageOcrText]);
+  async function ingestAfterBrowserOcr(detailed: OcrDetailedResult) {
+    const raw = detailed.text ?? "";
+    const display = detailed.textDisplay ?? raw;
+    setImageOcrTextRaw(raw);
+    setImageOcrTextDisplay(display);
+    setImageOcrNormHintZh(detailed.displayNormalization?.labelZh ?? null);
+    setImageOcrPreviewConfidence(detailed.confidence);
+    setImageOcrPreviewPercent(detailed.confidencePercent);
+
+    setOcrProgress(1);
+    let clean = display;
+    let gptHint: string | null = null;
+    let gptCode: string | null = null;
+    let gptDebug: string | null = null;
+    try {
+      const cleanRes = await fetch("/api/ocr/clean", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ text: display }),
+      });
+      const j = (await cleanRes.json().catch(() => ({}))) as {
+        textClean?: string;
+        labelZh?: string;
+        code?: string;
+        debugMessage?: string;
+        error?: string;
+      };
+      if (cleanRes.ok) {
+        if (typeof j.textClean === "string") {
+          clean = j.textClean.trim() || display;
+        }
+        gptHint = typeof j.labelZh === "string" ? j.labelZh : null;
+        gptCode = typeof j.code === "string" ? j.code : null;
+        gptDebug = typeof j.debugMessage === "string" ? j.debugMessage : null;
+      } else {
+        gptHint = "後續整理未成功，已使用辨識結果。";
+        gptCode = "GPT_CLEAN_UNKNOWN_ERROR";
+        gptDebug = `HTTP ${cleanRes.status}${j.error ? `: ${j.error}` : ""}`.slice(0, 800);
+      }
+    } catch (netErr) {
+      gptHint = "連線異常，已使用辨識結果。";
+      gptCode = "GPT_CLEAN_UNKNOWN_ERROR";
+      gptDebug =
+        `[client] ${netErr instanceof Error ? `${netErr.name}: ${netErr.message}` : String(netErr)}`.slice(0, 800);
+    }
+
+    setImageOcrTextClean(clean);
+    setImageOcrText(clean);
+    setImageOcrGptHintZh(gptHint);
+    setImageOcrGptCleanCode(gptCode);
+    setImageOcrGptCleanDebug(gptDebug);
+
+    if (typeof window !== "undefined" && gptCode && gptCode !== "GPT_CLEAN_OK") {
+      console.warn("[ocr/clean]", gptCode, gptHint, gptDebug);
+    }
+    toast.success("掃描完成");
+  }
 
   async function runOcrPreview() {
     if (!imageFile) {
@@ -211,122 +198,13 @@ export function AnalyzeView() {
     }
     setOcrBusy(true);
     setOcrClientError(null);
-    setOcrQualityBanner(null);
     setOcrProgress(0);
     const ocrMod = await import("@/lib/ocr/browser-ocr");
     try {
       const detailed = await ocrMod.runBrowserOcrDetailed(imageFile, {
         onProgress: (r) => setOcrProgress(r),
       });
-      const raw = detailed.text ?? "";
-      const display = detailed.textDisplay ?? raw;
-      setImageOcrTextRaw(raw);
-      setImageOcrTextDisplay(display);
-      setImageOcrNormHintZh(detailed.displayNormalization?.labelZh ?? null);
-      setImageOcrPreviewConfidence(detailed.confidence);
-      setImageOcrPreviewPercent(detailed.confidencePercent);
-
-      setOcrProgress(1);
-      let clean = display;
-      let gptHint: string | null = null;
-      let gptCode: string | null = null;
-      let gptDebug: string | null = null;
-      try {
-        const cleanRes = await fetch("/api/ocr/clean", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
-          body: JSON.stringify({ text: display }),
-        });
-        const j = (await cleanRes.json().catch(() => ({}))) as {
-          textClean?: string;
-          labelZh?: string;
-          code?: string;
-          debugMessage?: string;
-          error?: string;
-        };
-        if (cleanRes.ok) {
-          if (typeof j.textClean === "string") {
-            clean = j.textClean.trim() || display;
-          }
-          gptHint = typeof j.labelZh === "string" ? j.labelZh : null;
-          gptCode = typeof j.code === "string" ? j.code : null;
-          gptDebug = typeof j.debugMessage === "string" ? j.debugMessage : null;
-        } else {
-          gptHint = "GPT 清理端點未成功，已使用字形校正後文字。";
-          gptCode = "GPT_CLEAN_UNKNOWN_ERROR";
-          gptDebug = `HTTP ${cleanRes.status}${j.error ? `: ${j.error}` : ""}`.slice(0, 800);
-        }
-      } catch (netErr) {
-        gptHint = "無法連線至 GPT 清理服務，已使用字形校正後文字。";
-        gptCode = "GPT_CLEAN_UNKNOWN_ERROR";
-        gptDebug =
-          `[client] ${netErr instanceof Error ? `${netErr.name}: ${netErr.message}` : String(netErr)}`.slice(0, 800);
-      }
-
-      setImageOcrTextClean(clean);
-      setImageOcrText(clean);
-      setImageOcrGptHintZh(gptHint);
-      setImageOcrGptCleanCode(gptCode);
-      setImageOcrGptCleanDebug(gptDebug);
-
-      const { lines: rebuiltLines, blocks: rebuiltBlocks } = rebuildOcrLinePreviewsFromFullText(
-        clean,
-        detailed.confidence,
-        420
-      );
-      setImageOcrLines(
-        rebuiltLines.map((l) => ({
-          text: l.text,
-          confidence: l.confidence,
-          confidencePercent: Math.round(l.confidence * 100),
-        }))
-      );
-      setImageOcrBlocks(
-        rebuiltBlocks.map((b) => ({
-          text: b.text.length > 400 ? `${b.text.slice(0, 400)}…` : b.text,
-          confidence: b.confidence,
-          confidencePercent: Math.round(b.confidence * 100),
-          lineCount: b.lines.length,
-          lines: b.lines.map((l) => ({
-            text: l.text.length > 200 ? `${l.text.slice(0, 200)}…` : l.text,
-            confidence: l.confidence,
-            confidencePercent: Math.round(l.confidence * 100),
-          })),
-        }))
-      );
-      const pct = formatOcrPercent(detailed.confidence, detailed.confidencePercent);
-      const tierLabel = ocrConfidenceTier(detailed.confidence);
-      const bp = detailed.browserPipeline;
-      const passHint = bp
-        ? bp.selectedPass === "original"
-          ? "本次採用：原圖辨識（與預處理／補強軌比選後較佳）。"
-          : bp.selectedPass === "preprocessed"
-            ? "本次採用：預處理增強後圖像辨識（放大、灰階、對比等；預覽仍為原圖）。"
-            : `本次採用：稀疏版面補強辨識（${bp.sparseUsedPreprocessed ? "預處理圖" : "原圖"}）。`
-        : "";
-      if (bp?.qualityWarningZh) {
-        setOcrQualityBanner({ variant: "warn", message: bp.qualityWarningZh, passHint });
-      } else if (bp?.qualityCautionZh) {
-        setOcrQualityBanner({ variant: "caution", message: bp.qualityCautionZh, passHint });
-      } else {
-        setOcrQualityBanner(null);
-      }
-      const extra =
-        bp?.qualityWarningZh != null
-          ? ` ${bp.qualityWarningZh}`
-          : bp?.qualityCautionZh != null
-            ? ` ${bp.qualityCautionZh}`
-            : "";
-      const normPart = detailed.displayNormalization?.labelZh
-        ? `${detailed.displayNormalization.labelZh} `
-        : "";
-      const scriptPart = detailed.hanScript?.labelZh
-        ? `引擎原文字形摘要：${detailed.hanScript.labelZh}。 `
-        : "";
-      toast.success("已於瀏覽器擷取圖片文字", {
-        description: `${passHint ? `${passHint} ` : ""}${normPart}${scriptPart}${gptHint ? `${gptHint} ` : ""}辨識信心 ${pct}（${tierLabel}）。語系：繁中＋簡中＋英文，多軌比選。編輯框預設為 GPT 清理後全文，請確認後再送交檢測。${extra}`.trim(),
-      });
+      await ingestAfterBrowserOcr(detailed);
     } catch (e) {
       const err = ocrMod.formatBrowserOcrError(e);
       setOcrClientError(err);
@@ -433,7 +311,7 @@ export function AnalyzeView() {
         <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-secondary">分析工作區</p>
         <h1 className="text-2xl font-medium tracking-tight text-ink sm:text-[1.625rem] sm:leading-snug">合規檢測</h1>
         <p className="max-w-xl text-[15px] leading-relaxed text-ink-secondary">
-          支援文字、圖片（圖像 AI 主軌，OCR 為輔助對照）與 PDF（依頁分析）。多帳號共用審查額度：文字／圖片各 1 點；PDF 依頁數扣點。
+          支援文字、圖片與 PDF（依頁分析）。多帳號共用審查額度：文字／圖片各 1 點；PDF 依頁數扣點。
         </p>
       </div>
 
@@ -488,8 +366,9 @@ export function AnalyzeView() {
         <CardHeader className="border-b border-surface-border px-5 py-5 sm:px-6">
           <CardTitle>輸入內容</CardTitle>
           <CardDescription>
-            登入後使用工作區之共用審查額度。圖片檢測為<strong className="font-medium text-ink">雙軌</strong>
-            ：主軸為圖像 AI 合規判讀；瀏覽器 OCR 僅為輔助對照層（選填，擷取後可編輯並查看信心）。
+            {tab === "image"
+              ? "請上傳圖片，按「掃描圖片」辨識文字後可編輯，再按「開始檢測」。須登入並選擇工作區。"
+              : "登入後使用工作區之共用審查額度。文字與 PDF 可依分頁操作。"}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5 px-5 py-6 sm:px-6">
@@ -548,181 +427,49 @@ export function AnalyzeView() {
                   setImageOcrGptCleanDebug(null);
                   setImageOcrPreviewConfidence(null);
                   setImageOcrPreviewPercent(null);
-                  setImageOcrLines(null);
-                  setImageOcrBlocks(null);
                   setOcrClientError(null);
                   setOcrProgress(null);
-                  setOcrQualityBanner(null);
                 }}
               />
-              <p className="text-xs leading-relaxed text-ink-secondary">
-                建議清晰海報或截圖；上限 10MB。送檢時會以<strong className="font-medium text-ink">圖像 AI</strong>
-                為主分析畫面宣稱；您可按「擷取文字（瀏覽器 OCR）」取得可編輯文字作<strong className="font-medium text-ink">輔助參考</strong>
-                （非唯一依據）。OCR 品質不佳時，仍以圖像分析為準。
-              </p>
+              <p className="text-xs leading-relaxed text-ink-secondary">建議清晰圖片；上限 10MB。</p>
               {ocrClientError ? (
                 <div className="rounded-lg border border-red-200/90 bg-red-50/90 px-3 py-2 text-sm text-red-950">
-                  <p className="font-medium">瀏覽器辨識失敗</p>
+                  <p className="font-medium">掃描失敗</p>
                   <p className="mt-1 text-xs text-red-900/90">{ocrClientError.message}</p>
                   <p className="mt-1 text-[11px] text-red-800/80">代碼：{ocrClientError.code}</p>
                 </div>
               ) : null}
 
-              {ocrQualityBanner ? (
-                <div
-                  className={
-                    ocrQualityBanner.variant === "warn"
-                      ? "rounded-lg border border-amber-300/90 bg-amber-50/95 px-3 py-2.5 text-sm text-amber-950"
-                      : "rounded-lg border border-zinc-200 bg-zinc-50/95 px-3 py-2.5 text-sm text-zinc-900"
-                  }
-                >
-                  {ocrQualityBanner.message ? (
-                    <p className="font-medium leading-relaxed text-ink">{ocrQualityBanner.message}</p>
-                  ) : null}
-                  <p className={ocrQualityBanner.message ? "mt-1.5 text-xs leading-relaxed text-ink-secondary" : "text-xs leading-relaxed text-ink-secondary"}>
-                    {ocrQualityBanner.passHint}
-                  </p>
-                </div>
-              ) : null}
-
               {imagePreviewUrl ? (
-                <div className="grid gap-4 lg:grid-cols-2">
+                <div className="space-y-4">
                   <div className="space-y-2">
-                    <p className="text-xs font-medium text-ink-secondary">原始圖片</p>
-                    <div className="relative max-h-64 overflow-hidden rounded-xl border border-surface-border bg-canvas">
-                      {/* eslint-disable-next-line @next/next/no-img-element -- blob URLs */}
+                    <p className="text-xs font-medium text-ink-secondary">原始圖片預覽</p>
+                    <div className="relative flex max-h-64 justify-center overflow-hidden rounded-xl border border-surface-border bg-canvas">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={imagePreviewUrl} alt="上傳預覽" className="max-h-64 w-full object-contain object-top" />
                     </div>
                   </div>
-                  <div className="flex flex-col gap-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button type="button" variant="secondary" size="sm" disabled={ocrBusy || !imageFile} onClick={() => void runOcrPreview()}>
-                        {ocrBusy
-                          ? ocrProgress != null && ocrProgress < 1
-                            ? "瀏覽器辨識中…"
-                            : "GPT 清理中…"
-                          : "擷取文字（瀏覽器 OCR）"}
-                      </Button>
-                      {ocrBusy && ocrProgress != null ? (
-                        <span className="text-xs tabular-nums text-ink-secondary">{Math.round(ocrProgress * 100)}%</span>
-                      ) : null}
-                      {imageOcrPreviewConfidence != null ? (
-                        <span className="inline-flex flex-wrap items-center gap-1.5 rounded-lg border border-surface-border bg-canvas px-2.5 py-1 text-xs text-ink">
-                          <span className="text-ink-secondary">OCR 信心</span>
-                          <span className="font-semibold tabular-nums text-ink">
-                            {formatOcrPercent(imageOcrPreviewConfidence, imageOcrPreviewPercent ?? undefined)}
-                          </span>
-                          <span className="rounded bg-zinc-200/80 px-1.5 py-0.5 text-[11px] font-medium text-zinc-800">
-                            {ocrConfidenceTier(imageOcrPreviewConfidence)}
-                          </span>
-                          <span className="text-[11px] text-ink-secondary">（以有文字之行平均）</span>
-                        </span>
-                      ) : (
-                        <span className="text-xs text-ink-secondary">尚未擷取</span>
-                      )}
-                      {imageOcrHanLabelZh ? (
-                        <span
-                          className="inline-flex rounded border border-zinc-200/90 bg-white px-2 py-1 text-[11px] font-medium text-ink"
-                          title="依框內目前文字（含擷取後顯示層）統計繁／簡對照字出現量，僅供參考；與引擎原文欄位分開。"
-                        >
-                          字形：{imageOcrHanLabelZh}
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="space-y-2">
-                      <p className="text-xs font-medium text-ink-secondary">OCR 文字（GPT 清理後，預設；可編輯）</p>
-                      {imageOcrNormHintZh ? (
-                        <p className="text-[11px] leading-relaxed text-ink-secondary">{imageOcrNormHintZh}</p>
-                      ) : null}
-                      {imageOcrGptHintZh ? (
-                        <p className="text-[11px] leading-relaxed text-ink-secondary">{imageOcrGptHintZh}</p>
-                      ) : null}
-                      {imageOcrGptCleanCode && imageOcrGptCleanCode !== "GPT_CLEAN_OK" ? (
-                        <p className="rounded-md border border-amber-200/90 bg-amber-50/80 px-2 py-1.5 font-mono text-[11px] leading-relaxed text-amber-950">
-                          <span className="font-semibold">{imageOcrGptCleanCode}</span>
-                          {imageOcrGptCleanDebug ? (
-                            <>
-                              <span className="mx-1 text-amber-800/90">·</span>
-                              <span className="break-all text-amber-900/95">{imageOcrGptCleanDebug}</span>
-                            </>
-                          ) : null}
-                        </p>
-                      ) : null}
-                      <Textarea
-                        value={imageOcrText}
-                        onChange={(e) => {
-                          setImageOcrText(e.target.value);
-                          setImageOcrNormHintZh(null);
-                          setImageOcrGptHintZh(null);
-                          setImageOcrGptCleanCode(null);
-                          setImageOcrGptCleanDebug(null);
-                        }}
-                        placeholder="選填：按「擷取文字」帶入（字形校正 → GPT 清理），或手動貼上／修正…"
-                        className="min-h-[160px]"
-                      />
-                      {imageOcrTextRaw !== "" || imageOcrTextDisplay !== "" ? (
-                        <details className="rounded-lg border border-surface-border bg-white px-3 py-2 text-[11px] text-ink-secondary">
-                          <summary className="cursor-pointer font-medium text-ink">檢視各層 OCR 對照（除錯）</summary>
-                          <div className="mt-3 space-y-4">
-                            <div>
-                              <p className="text-[11px] font-medium text-ink">1. 原始 OCR（引擎聚合）</p>
-                              <pre className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-words rounded-md bg-canvas p-2 text-xs text-ink">
-                                {imageOcrTextRaw || "（無）"}
-                              </pre>
-                            </div>
-                            {imageOcrTextDisplay ? (
-                              <div>
-                                <p className="text-[11px] font-medium text-ink">2. 字形校正後（不含 GPT）</p>
-                                <pre className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-words rounded-md bg-canvas p-2 text-xs text-ink">
-                                  {imageOcrTextDisplay}
-                                </pre>
-                              </div>
-                            ) : null}
-                            {imageOcrTextClean ? (
-                              <div>
-                                <p className="text-[11px] font-medium text-ink">3. GPT 清理後（送檢預設，與上方編輯框初值相同）</p>
-                                <pre className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-words rounded-md bg-canvas p-2 text-xs text-ink">
-                                  {imageOcrTextClean}
-                                </pre>
-                              </div>
-                            ) : null}
-                          </div>
-                        </details>
-                      ) : null}
-                      <p className="text-[11px] leading-relaxed text-ink-secondary">
-                        此欄與圖檔一併送交：有內容時另跑<strong className="font-medium text-ink">文字軌</strong>
-                        合規分析作<strong className="font-medium text-ink">選讀驗證</strong>
-                        ，不併入主清單；以<strong className="font-medium text-ink">GPT 清理後</strong>
-                        文字為準。主摘要、主發現與改寫仍以圖像 AI 為準。
-                      </p>
-                    </div>
-                    {imageOcrLines && imageOcrLines.length > 0 ? (
-                      <details className="rounded-lg border border-surface-border bg-white px-3 py-2 text-xs">
-                        <summary className="cursor-pointer font-medium text-ink">逐行辨識參考（Tesseract）</summary>
-                        <ul className="mt-2 max-h-48 space-y-1.5 overflow-y-auto text-ink-secondary">
-                          {imageOcrLines.map((line, i) => (
-                            <li key={`${i}-${line.text.slice(0, 12)}`} className="flex flex-wrap gap-x-2 border-b border-zinc-100/90 pb-1 last:border-0">
-                              <span className="min-w-0 flex-1 break-words text-ink">{line.text || "（空白行）"}</span>
-                              <span className="shrink-0 tabular-nums text-[11px] text-ink-secondary">{line.confidencePercent}%</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </details>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button type="button" variant="secondary" size="sm" disabled={ocrBusy || !imageFile} onClick={() => void runOcrPreview()}>
+                      掃描圖片
+                    </Button>
+                    {ocrBusy ? (
+                      <span className="text-sm tabular-nums text-ink-secondary">掃描中 {Math.round((ocrProgress ?? 0) * 100)}%</span>
                     ) : null}
-                    {imageOcrBlocks && imageOcrBlocks.length > 0 ? (
-                      <details className="rounded-lg border border-surface-border bg-white px-3 py-2 text-xs">
-                        <summary className="cursor-pointer font-medium text-ink">區塊結構參考</summary>
-                        <ul className="mt-2 max-h-40 space-y-2 overflow-y-auto text-ink-secondary">
-                          {imageOcrBlocks.map((b, i) => (
-                            <li key={i} className="rounded-md bg-canvas px-2 py-1.5">
-                              <span className="font-medium text-ink">{b.confidencePercent}%</span>
-                              <span className="text-ink-secondary"> · {b.lineCount} 行</span>
-                              <p className="mt-0.5 line-clamp-3 text-[11px]">{b.text}</p>
-                            </li>
-                          ))}
-                        </ul>
-                      </details>
-                    ) : null}
+                  </div>
+                  <div className="space-y-2">
+                    <Textarea
+                      value={imageOcrText}
+                      onChange={(e) => {
+                        setImageOcrText(e.target.value);
+                        setImageOcrNormHintZh(null);
+                        setImageOcrGptHintZh(null);
+                        setImageOcrGptCleanCode(null);
+                        setImageOcrGptCleanDebug(null);
+                      }}
+                      placeholder="掃描後可在此編輯辨識結果，或手動貼上／修正…"
+                      className="min-h-[160px]"
+                    />
                   </div>
                 </div>
               ) : null}
@@ -796,14 +543,12 @@ export function AnalyzeView() {
             <>
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">圖片與雙軌結果</CardTitle>
-                  <CardDescription>
-                    主軌為圖像 AI（摘要、發現、法遵說明、改寫）；OCR／編輯文字為輔助層。下方「發現項目」為圖像 AI 主清單；「輔助層對照本文」僅供 OCR 高亮與對照。
-                  </CardDescription>
+                  <CardTitle className="text-base">圖片檢測結果</CardTitle>
+                  <CardDescription>摘要與辨識文字如下；發現項目見下方。</CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-6 lg:grid-cols-2">
                   <div className="space-y-2">
-                    <p className="text-xs font-medium text-ink-secondary">原始圖片</p>
+                    <p className="text-xs font-medium text-ink-secondary">原始圖片預覽</p>
                     <div className="relative max-h-72 overflow-hidden rounded-xl border border-surface-border bg-canvas">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={imagePreviewUrl} alt="分析圖片" className="max-h-72 w-full object-contain object-top" />
@@ -811,24 +556,8 @@ export function AnalyzeView() {
                   </div>
                   <div className="space-y-6 text-sm">
                     {result.imageDualTrack ? (
-                      <ImageDualTrackSummaryBlock
-                        report={result.imageDualTrack}
-                        serverOcrConfidence={result.meta.ocrConfidence}
-                        previewConfidence01={imageOcrPreviewConfidence}
-                        previewPercent={imageOcrPreviewPercent}
-                      />
-                    ) : (
-                      <div className="space-y-3 text-ink-secondary">
-                        {result.meta.ocrConfidence != null ? (
-                          <div className="flex flex-wrap items-center gap-2 text-ink">
-                            <span>OCR 信心 {formatOcrPercent(result.meta.ocrConfidence)}</span>
-                            <span className="rounded-md bg-zinc-200/80 px-2 py-0.5 text-xs font-medium text-zinc-800">
-                              {ocrConfidenceTier(result.meta.ocrConfidence)}
-                            </span>
-                          </div>
-                        ) : null}
-                      </div>
-                    )}
+                      <ImageDualTrackSummaryBlock report={result.imageDualTrack} />
+                    ) : null}
                   </div>
                 </CardContent>
               </Card>
@@ -855,7 +584,7 @@ export function AnalyzeView() {
 
               <div className="space-y-5">
                 <div className="flex items-end justify-between gap-4">
-                  <h2 className="text-xl font-semibold tracking-tight text-ink">發現項目（圖像 AI 主軌）</h2>
+                  <h2 className="text-xl font-semibold tracking-tight text-ink">發現項目</h2>
                   <p className="text-xs text-ink-secondary">共 {result.findings.length} 項</p>
                 </div>
 
@@ -875,43 +604,17 @@ export function AnalyzeView() {
                 )}
               </div>
 
-              {result.imageDualTrack?.textPassFindings && result.imageDualTrack.textPassFindings.length > 0 ? (
-                <details className="group rounded-xl border border-surface-border bg-white p-5">
-                  <summary className="cursor-pointer list-none text-sm font-semibold text-ink outline-none [&::-webkit-details-marker]:hidden">
-                    <span className="inline-flex items-center gap-2">
-                      文字軌合規驗證（選讀，{result.imageDualTrack.textPassFindings.length} 項）
-                      <span className="text-xs font-medium text-ink-secondary group-open:hidden">展開</span>
-                      <span className="hidden text-xs font-medium text-ink-secondary group-open:inline">收合</span>
-                    </span>
-                  </summary>
-                  <p className="mt-3 text-xs leading-relaxed text-ink-secondary">
-                    以下僅依 OCR／編輯後文字產生，供交叉對照；主清單與主摘要仍以圖像 AI 為準。OCR 亂碼時請勿以此否定圖像判讀。
-                  </p>
-                  <div className="mt-4 space-y-5">
-                    {result.imageDualTrack.textPassFindings.map((f, idx) => (
-                      <FindingPanel
-                        key={`textpass-${f.riskyPhrase}-${idx}`}
-                        finding={f}
-                        fullText={displayTextForHighlight}
-                        allowRegenerate={!result.meta.guest}
-                      />
-                    ))}
-                  </div>
-                </details>
-              ) : null}
-
               <Card>
                 <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-4 space-y-0">
                   <div className="space-y-2">
-                    <CardTitle>輔助層對照本文（OCR／編輯文字）</CardTitle>
-                    <CardDescription>
-                      高亮僅在輔助文字內對齊；圖像 AI 主軌之 matchedText 未必出現於 OCR。若未擷取文字則可能無內容可標示。
-                    </CardDescription>
+                    <CardTitle>對照文字</CardTitle>
+                    <CardDescription>風險片語高亮對齊於此處文字（若掃描為空則可能無標示）。</CardDescription>
                   </div>
                   <MetaBadges
                     result={result}
                     imagePreviewConfidence01={imageOcrPreviewConfidence}
                     imagePreviewPercent={imageOcrPreviewPercent}
+                    hideImageOcrConfidence
                   />
                 </CardHeader>
                 <CardContent className="rounded-2xl border border-surface-border bg-canvas p-5">
@@ -1002,7 +705,7 @@ function NonPdfInsightSummary({ result }: { result: AnalysisResult }) {
       <CardHeader className="pb-2">
         <CardTitle className="text-base">檢測摘要</CardTitle>
         <CardDescription>
-          {kind === "image" ? "圖片（圖像 AI 主軌）" : "文字"} · 發現 {result.findings.length} 項風險片段
+          {kind === "image" ? "圖片" : "文字"} · 發現 {result.findings.length} 項風險片段
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -1038,12 +741,15 @@ function MetaBadges({
   result,
   imagePreviewConfidence01,
   imagePreviewPercent,
+  hideImageOcrConfidence,
 }: {
   result: AnalysisResult;
   imagePreviewConfidence01?: number | null;
   imagePreviewPercent?: number | null;
+  hideImageOcrConfidence?: boolean;
 }) {
   const showPreviewOcr =
+    !hideImageOcrConfidence &&
     result.meta.inputKind === "image" &&
     result.meta.ocrConfidence == null &&
     imagePreviewConfidence01 != null;
@@ -1061,13 +767,13 @@ function MetaBadges({
           本次扣點 {result.meta.unitsCharged} 點
         </span>
       ) : null}
-      {result.meta.ocrConfidence != null ? (
+      {!hideImageOcrConfidence && result.meta.ocrConfidence != null ? (
         <span className="rounded-lg border border-surface-border bg-white px-2 py-1">
-          OCR（輔助層）{formatOcrPercent(result.meta.ocrConfidence)}（{ocrConfidenceTier(result.meta.ocrConfidence)}）
+          辨識信心 {formatOcrPercent(result.meta.ocrConfidence)}（{ocrConfidenceTier(result.meta.ocrConfidence)}）
         </span>
       ) : showPreviewOcr ? (
         <span className="rounded-lg border border-amber-200/80 bg-amber-50/50 px-2 py-1 text-amber-950">
-          瀏覽器 OCR（輔助層）{formatOcrPercent(imagePreviewConfidence01, imagePreviewPercent ?? undefined)}（
+          辨識信心 {formatOcrPercent(imagePreviewConfidence01, imagePreviewPercent ?? undefined)}（
           {ocrConfidenceTier(imagePreviewConfidence01)}）
         </span>
       ) : null}
