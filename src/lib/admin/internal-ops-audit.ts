@@ -32,11 +32,21 @@ export const INTERNAL_OPS_AUDIT_ACTIONS = [
   "workspace_plan_update",
   "workspace_subscription_status_update",
   "manual_billing_override",
+  "user_password_recovery_request",
+  "user_password_recovery_force",
+  "user_ban_update",
+  "user_quota_update",
+  "user_plan_update",
+  "user_subscription_status_update",
+  "user_period_end_update",
+  "user_cancel_at_period_end_update",
+  "user_billing_provider_update",
+  "user_manual_override",
 ] as const;
 
 export type InternalOpsAuditActionType = (typeof INTERNAL_OPS_AUDIT_ACTIONS)[number];
 
-export type InternalOpsAuditTargetType = "workspace" | "system" | "billing";
+export type InternalOpsAuditTargetType = "workspace" | "system" | "billing" | "user";
 
 export type InternalOpsAuditRow = {
   id: string;
@@ -94,6 +104,18 @@ export async function fetchWorkspaceBillingAuditSnapshot(
     .select(WORKSPACE_AUDIT_SELECT)
     .eq("id", workspaceId)
     .maybeSingle();
+  if (error || !data) return null;
+  return data as unknown as Record<string, unknown>;
+}
+
+const USER_AUDIT_SELECT =
+  "id, plan, subscription_status, monthly_analysis_quota, billing_provider, cancel_at_period_end, current_period_end";
+
+export async function fetchUserBillingAuditSnapshot(
+  admin: SupabaseClient,
+  userId: string
+): Promise<Record<string, unknown> | null> {
+  const { data, error } = await admin.from("users").select(USER_AUDIT_SELECT).eq("id", userId).maybeSingle();
   if (error || !data) return null;
   return data as unknown as Record<string, unknown>;
 }
