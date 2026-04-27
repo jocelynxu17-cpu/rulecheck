@@ -1,5 +1,12 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { canAccessInternalOps } from "@/lib/admin/internal-ops-access";
+import {
+  INTERNAL_ACTIVITY_BATCH_CAP,
+  INTERNAL_LIST_PAGE_DEFAULT,
+  INTERNAL_LIST_PAGE_MAX,
+  clampPage,
+  clampPageSize,
+} from "@/lib/admin/internal-scale-conventions";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -25,16 +32,32 @@ export type InternalUsersListResult = {
   users: InternalUsersListRow[];
   error: string | null;
   yymm: string;
+  pagination: {
+    page: number;
+    pageSize: number;
+    hasNextPage: boolean;
+  };
 };
 
 function escapeIlikePattern(s: string): string {
   return s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
 }
 
-/** 內部用戶列表：含搜尋、工作區數、最近用量事件時間、內部權限旗標。 */
-export async function fetchInternalUsersList(searchQuery?: string | null): Promise<InternalUsersListResult> {
+/** 內部用戶列表：含搜尋、工作區數、最近用量事件時間、內部權限旗標（分頁 + 下一頁偵測）。 */
+export async function fetchInternalUsersList(
+  searchQuery?: string | null,
+  opts?: { page?: number; pageSize?: number }
+): Promise<InternalUsersListResult> {
   const yymm = new Date().toISOString().slice(0, 7);
-  const empty: InternalUsersListResult = { users: [], error: null, yymm };
+  const pageSize = clampPageSize(opts?.pageSize, INTERNAL_LIST_PAGE_DEFAULT, INTERNAL_LIST_PAGE_MAX);
+  const page = clampPage(opts?.page);
+  const offset = (page - 1) * pageSize;
+  const empty: InternalUsersListResult = {
+    users: [],
+    error: null,
+    yymm,
+    pagination: { page, pageSize, hasNextPage: false },
+  };
 
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return { ...empty, error: "未設定 SUPABASE_SERVICE_ROLE_KEY，無法載入列表。" };
@@ -49,8 +72,7 @@ export async function fetchInternalUsersList(searchQuery?: string | null): Promi
       .select(
         "id, email, plan, subscription_status, monthly_analysis_quota, analyses_used_month, usage_month, created_at, billing_provider, cancel_at_period_end, current_period_end"
       )
-      .order("created_at", { ascending: false })
-      .limit(400);
+      .order("created_at", { ascending: false });
 
     if (q) {
       const esc = escapeIlikePattern(q);
@@ -61,12 +83,13 @@ export async function fetchInternalUsersList(searchQuery?: string | null): Promi
       }
     }
 
-    const { data: rawUsers, error: uErr } = await uq;
+    const fetchEnd = offset + pageSize;
+    const { data: rawUsers, error: uErr } = await uq.range(offset, fetchEnd);
     if (uErr) {
       return { ...empty, error: uErr.message };
     }
 
-    const rows = (rawUsers ?? []) as Array<{
+    const batch = (rawUsers ?? []) as Array<{
       id: string;
       email: string | null;
       plan: string | null;
@@ -80,6 +103,9 @@ export async function fetchInternalUsersList(searchQuery?: string | null): Promi
       current_period_end: string | null;
     }>;
 
+    const hasNextPage = batch.length > pageSize;
+    const rows = batch.slice(0, pageSize);
+
     const userIds = rows.map((u) => u.id);
     const userWsCount = new Map<string, number>();
     const lastActivityByUser = new Map<string, string>();
@@ -92,7 +118,7 @@ export async function fetchInternalUsersList(searchQuery?: string | null): Promi
           .select("user_id, created_at")
           .in("user_id", userIds)
           .order("created_at", { ascending: false })
-          .limit(8000),
+          .limit(INTERNAL_ACTIVITY_BATCH_CAP),
       ]);
 
       for (const row of um ?? []) {
@@ -125,7 +151,7 @@ export async function fetchInternalUsersList(searchQuery?: string | null): Promi
       internal_access: canAccessInternalOps(u.email),
     }));
 
-    return { users, error: null, yymm };
+    return { users, error: null, yymm, pagination: { page, pageSize, hasNextPage } };
   } catch (e) {
     return {
       ...empty,

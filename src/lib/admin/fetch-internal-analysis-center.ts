@@ -7,6 +7,7 @@ import { normalizeAnalysisResult } from "@/lib/analysis-normalize";
 import type { AdminWorkspaceRange } from "@/lib/admin/workspace-admin-range";
 import { parseWorkspaceAdminRange, sinceIsoForWorkspaceRange, workspaceRangeLabelZh } from "@/lib/admin/workspace-admin-range";
 import { isLikelyPaymentFailureEventType } from "@/lib/admin/payment-event-signals";
+import { INTERNAL_PAYMENT_BATCH_SCAN_MAX } from "@/lib/admin/internal-scale-conventions";
 import { loadPaymentEvents } from "@/lib/admin/load-payment-events";
 
 const UUID_RE =
@@ -307,7 +308,7 @@ export async function fetchInternalAnalysisCenter(
         .gte("created_at", sinceIso)
         .order("created_at", { ascending: false })
         .limit(ANALYSIS_OPS_SCAN_CAP),
-      loadPaymentEvents(450),
+      loadPaymentEvents({ limit: 450, maxLimit: INTERNAL_PAYMENT_BATCH_SCAN_MAX }),
     ]);
 
     const qErr =

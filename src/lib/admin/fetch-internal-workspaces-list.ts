@@ -3,6 +3,13 @@ import {
   collectAnalysisOpsHintsFromResult,
   mergeHintLabels,
 } from "@/lib/admin/workspace-analysis-ops-hints";
+import {
+  INTERNAL_ACTIVITY_BATCH_CAP,
+  INTERNAL_LIST_PAGE_DEFAULT,
+  INTERNAL_LIST_PAGE_MAX,
+  clampPage,
+  clampPageSize,
+} from "@/lib/admin/internal-scale-conventions";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -36,14 +43,30 @@ export type InternalWorkspacesListResult = {
   workspaces: InternalWorkspaceListRow[];
   error: string | null;
   yymm: string;
+  pagination: {
+    page: number;
+    pageSize: number;
+    hasNextPage: boolean;
+  };
 };
 
 /**
  * 工作區營運列表：搜尋、批次成員數／擁有者、最近活動與簡要提示（避免 N+1）。
  */
-export async function fetchInternalWorkspacesList(searchQuery?: string | null): Promise<InternalWorkspacesListResult> {
+export async function fetchInternalWorkspacesList(
+  searchQuery?: string | null,
+  opts?: { page?: number; pageSize?: number }
+): Promise<InternalWorkspacesListResult> {
   const yymm = new Date().toISOString().slice(0, 7);
-  const empty: InternalWorkspacesListResult = { workspaces: [], error: null, yymm };
+  const pageSize = clampPageSize(opts?.pageSize, INTERNAL_LIST_PAGE_DEFAULT, INTERNAL_LIST_PAGE_MAX);
+  const page = clampPage(opts?.page);
+  const offset = (page - 1) * pageSize;
+  const empty: InternalWorkspacesListResult = {
+    workspaces: [],
+    error: null,
+    yymm,
+    pagination: { page, pageSize, hasNextPage: false },
+  };
 
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return { ...empty, error: "未設定 SUPABASE_SERVICE_ROLE_KEY，無法載入列表。" };
@@ -58,8 +81,7 @@ export async function fetchInternalWorkspacesList(searchQuery?: string | null): 
       .select(
         "id, name, plan, subscription_status, billing_provider, cancel_at_period_end, current_period_end, monthly_quota_units, units_used_month, usage_month, created_at, created_by"
       )
-      .order("created_at", { ascending: false })
-      .limit(350);
+      .order("created_at", { ascending: false });
 
     if (q) {
       const esc = escapeIlikePattern(q);
@@ -70,12 +92,13 @@ export async function fetchInternalWorkspacesList(searchQuery?: string | null): 
       }
     }
 
-    const { data: rawWs, error: wsErr } = await wq;
+    const fetchEnd = offset + pageSize;
+    const { data: rawWs, error: wsErr } = await wq.range(offset, fetchEnd);
     if (wsErr) {
       return { ...empty, error: wsErr.message };
     }
 
-    const rows = (rawWs ?? []) as Array<{
+    const batch = (rawWs ?? []) as Array<{
       id: string;
       name: string;
       plan: string | null;
@@ -89,6 +112,9 @@ export async function fetchInternalWorkspacesList(searchQuery?: string | null): 
       created_at: string;
       created_by: string | null;
     }>;
+
+    const hasNextPage = batch.length > pageSize;
+    const rows = batch.slice(0, pageSize);
 
     const wsIds = rows.map((w) => w.id);
     const ownerIds = [...new Set(rows.map((w) => w.created_by).filter(Boolean))] as string[];
@@ -113,13 +139,13 @@ export async function fetchInternalWorkspacesList(searchQuery?: string | null): 
           .select("workspace_id, created_at")
           .in("workspace_id", wsIds)
           .order("created_at", { ascending: false })
-          .limit(12000),
+          .limit(INTERNAL_ACTIVITY_BATCH_CAP),
         admin
           .from("analysis_logs")
           .select("workspace_id, created_at, result, input_text, input_type")
           .in("workspace_id", wsIds)
           .order("created_at", { ascending: false })
-          .limit(12000),
+          .limit(INTERNAL_ACTIVITY_BATCH_CAP),
       ]);
 
       for (const m of memRows ?? []) {
@@ -181,7 +207,7 @@ export async function fetchInternalWorkspacesList(searchQuery?: string | null): 
       };
     });
 
-    return { workspaces, error: null, yymm };
+    return { workspaces, error: null, yymm, pagination: { page, pageSize, hasNextPage } };
   } catch (e) {
     return {
       ...empty,

@@ -37,7 +37,10 @@ export default async function InternalDebugPage({ searchParams }: PageProps) {
   const initialWorkspaceId = rawWs && UUID_RE.test(rawWs) ? rawWs : undefined;
   const initialEventId = rawEv && UUID_RE.test(rawEv) ? rawEv : undefined;
 
-  const { rows: paymentSample, error: paymentSampleError } = await loadPaymentEvents(200);
+  const { rows: paymentSample, error: paymentSampleError } = await loadPaymentEvents({
+    limit: 200,
+    maxLimit: 250,
+  });
 
   return (
     <div className="space-y-10 pb-8">

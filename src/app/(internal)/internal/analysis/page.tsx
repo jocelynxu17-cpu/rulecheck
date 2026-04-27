@@ -137,12 +137,13 @@ export default async function InternalAnalysisPage({
     } catch (e) {
       centerErr = e instanceof Error ? e.message : String(e);
     }
-    const pay = await loadPaymentEvents(400);
+    const pay = await loadPaymentEvents({ limit: 120 });
     payRows = pay.rows;
     payError = pay.error;
   }
 
   const flagged = payRows.filter((r) => isLikelyPaymentFailureEventType(r.event_type));
+  const flaggedPreview = flagged.slice(0, 12);
 
   const rangeVal = typeof sp.range === "string" ? sp.range : Array.isArray(sp.range) ? sp.range[0] : "";
   const typeVal = typeof sp.type === "string" ? sp.type : Array.isArray(sp.type) ? sp.type[0] : "";
@@ -404,14 +405,22 @@ export default async function InternalAnalysisPage({
 
       <Card className="border-surface-border">
         <CardHeader>
-          <CardTitle className="text-base">帳務層級可疑事件（供應商／失敗類型）</CardTitle>
-          <CardDescription>自最近 {payRows.length} 筆 payment_events 篩出 {flagged.length} 筆</CardDescription>
+          <CardTitle className="text-base">帳務異常（抽樣）</CardTitle>
+          <CardDescription>
+            自全域列表抽樣之最近 {payRows.length} 筆{" "}
+            <code className="rounded bg-canvas px-1 font-mono text-[11px]">payment_events</code> 中，篩出{" "}
+            {flagged.length} 筆疑似失敗／高風險類型（非全表掃描）。下方最多顯示 {flaggedPreview.length} 筆；完整篩選與分頁請至{" "}
+            <Link href="/internal/payment-events" className="font-medium text-ink underline-offset-4 hover:underline">
+              帳務事件
+            </Link>
+            。
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {payError ? (
             <p className="text-sm text-amber-900">{payError}</p>
           ) : flagged.length === 0 ? (
-            <p className="text-sm text-ink-secondary">目前無符合條件之事件。</p>
+            <p className="text-sm text-ink-secondary">目前抽樣中無符合條件之事件。</p>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-surface-border">
               <table className="w-full min-w-[920px] border-collapse text-left text-sm">
@@ -425,7 +434,7 @@ export default async function InternalAnalysisPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {flagged.map((r) => (
+                  {flaggedPreview.map((r) => (
                     <tr key={r.id} className="border-b border-surface-border/80 last:border-0 align-top">
                       <td className="whitespace-nowrap px-4 py-3 text-xs text-ink-secondary">{formatDateTime(r.created_at)}</td>
                       <td className="px-4 py-3">

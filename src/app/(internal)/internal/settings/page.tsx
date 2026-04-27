@@ -19,6 +19,25 @@ export default function InternalSettingsPage() {
 
       <InternalSystemEnvCard runtime={runtime} showSettingsLink={false} />
 
+      <Card className="border-surface-border border-dashed">
+        <CardHeader>
+          <CardTitle className="text-base">內部後台 · 擴展性約定</CardTitle>
+          <CardDescription>列表頁預設分頁載入；摘要與抽樣會標示；細節在明細頁。</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm leading-relaxed text-ink-secondary">
+          <p>
+            主要規則：摘要優先、明細在專頁；使用者／工作區／帳務／稽核列表皆有分頁與篩選入口；總覽不重複塞入長事件流。
+          </p>
+          <p>
+            數值來源：`users`／`workspaces` 等計數為 exact head count（仍應視為後台維護操作）；營運列表上的「最近活動」等多為批次抽樣。
+          </p>
+          <p className="text-xs">
+            預設頁長等常數集中於程式碼{" "}
+            <code className="rounded bg-canvas px-1 font-mono text-[11px]">internal-scale-conventions</code>。
+          </p>
+        </CardContent>
+      </Card>
+
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="border-surface-border">
           <CardHeader>

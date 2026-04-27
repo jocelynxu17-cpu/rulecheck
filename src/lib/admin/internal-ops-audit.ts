@@ -185,21 +185,26 @@ export type InternalOpsAuditQueryFilters = {
 };
 
 /**
- * 依條件載入稽核列。若有 `targetId` 篩選，會先多拉若干筆再在記憶體比對 JSON（含帳務 notify 內嵌 workspace）。
+ * 依條件載入稽核列。
+ * - 無 `targetId`：PostgREST `range` 分頁（over-fetch 一筆判斷下一頁）。
+ * - 有 `targetId`：先拉固定視窗再在記憶體比對 JSON；分頁僅在該視窗內有效（大量資料時請縮小條件）。
  */
 export async function fetchInternalOpsAuditLogsFiltered(
   admin: SupabaseClient,
   filters: InternalOpsAuditQueryFilters,
-  resultLimit: number
-): Promise<{ rows: InternalOpsAuditRow[]; error: string | null }> {
+  resultLimit: number,
+  options?: { offset?: number }
+): Promise<{ rows: InternalOpsAuditRow[]; error: string | null; hasNextPage: boolean }> {
   const tid = filters.targetId?.trim() ?? "";
   const action = filters.actionType?.trim() ?? "";
   const email = filters.actorEmail?.trim() ?? "";
+  const offset = Math.max(0, options?.offset ?? 0);
+  const pageSize = Math.max(1, Math.min(resultLimit, 500));
 
   const needsPostFilter = Boolean(tid);
-  const fetchLimit = needsPostFilter ? Math.min(500, Math.max(resultLimit * 4, 120)) : Math.min(500, resultLimit);
+  const poolLimit = needsPostFilter ? Math.min(500, Math.max(pageSize * 4, 120)) : null;
 
-  let q = admin.from("internal_ops_audit_log").select(AUDIT_SELECT).order("created_at", { ascending: false }).limit(fetchLimit);
+  let q = admin.from("internal_ops_audit_log").select(AUDIT_SELECT).order("created_at", { ascending: false });
 
   if (action && INTERNAL_OPS_AUDIT_ACTIONS.includes(action as InternalOpsAuditActionType)) {
     q = q.eq("action_type", action);
@@ -208,9 +213,23 @@ export async function fetchInternalOpsAuditLogsFiltered(
     q = q.ilike("actor_email", `%${escapeIlikePattern(email)}%`);
   }
 
+  if (!needsPostFilter) {
+    const end = offset + pageSize;
+    const { data, error } = await q.range(offset, end);
+    if (error) {
+      return { rows: [], error: error.message, hasNextPage: false };
+    }
+    const mapped = mapAuditRows(data);
+    const hasNextPage = mapped.length > pageSize;
+    const rows = mapped.slice(0, pageSize);
+    return { rows, error: null, hasNextPage };
+  }
+
+  q = q.limit(poolLimit ?? 500);
+
   const { data, error } = await q;
   if (error) {
-    return { rows: [], error: error.message };
+    return { rows: [], error: error.message, hasNextPage: false };
   }
 
   let rows = mapAuditRows(data);
@@ -223,13 +242,14 @@ export async function fetchInternalOpsAuditLogsFiltered(
     }
   }
 
-  rows = rows.slice(0, resultLimit);
-  return { rows, error: null };
+  const hasNextPage = rows.length > offset + pageSize;
+  const paged = rows.slice(offset, offset + pageSize);
+  return { rows: paged, error: null, hasNextPage };
 }
 
 export async function fetchRecentInternalOpsAuditLogs(
   admin: SupabaseClient,
   limit: number
-): Promise<{ rows: InternalOpsAuditRow[]; error: string | null }> {
-  return fetchInternalOpsAuditLogsFiltered(admin, {}, limit);
+): Promise<{ rows: InternalOpsAuditRow[]; error: string | null; hasNextPage: boolean }> {
+  return fetchInternalOpsAuditLogsFiltered(admin, {}, limit, { offset: 0 });
 }

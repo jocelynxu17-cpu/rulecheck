@@ -111,7 +111,7 @@ export async function fetchAdminHomeSnapshot(): Promise<AdminHomeSnapshot> {
       userCountRes,
       wsCountRes,
       analysesRes,
-      workspacesRollupRes,
+      chargedUnitsRpc,
       recentWsRes,
       invitesRes,
       paymentsRes,
@@ -124,9 +124,7 @@ export async function fetchAdminHomeSnapshot(): Promise<AdminHomeSnapshot> {
         .from("analysis_logs")
         .select("*", { count: "exact", head: true })
         .gte("created_at", periodStart),
-      admin
-        .from("workspaces")
-        .select("units_used_month, usage_month"),
+      admin.rpc("admin_sum_workspace_units_for_month", { p_usage_month: yymm }),
       admin
         .from("workspaces")
         .select(
@@ -164,7 +162,7 @@ export async function fetchAdminHomeSnapshot(): Promise<AdminHomeSnapshot> {
       userCountRes.error?.message ??
       wsCountRes.error?.message ??
       analysesRes.error?.message ??
-      workspacesRollupRes.error?.message ??
+      chargedUnitsRpc.error?.message ??
       recentWsRes.error?.message ??
       invitesRes.error?.message ??
       paymentsRes.error?.message;
@@ -173,14 +171,16 @@ export async function fetchAdminHomeSnapshot(): Promise<AdminHomeSnapshot> {
       return { ...empty, errorMessage: err };
     }
 
-    const wsRows = (workspacesRollupRes.data ?? []) as {
-      units_used_month: number;
-      usage_month: string;
-    }[];
-    const chargedUnitsThisMonth = wsRows.reduce((sum, w) => {
-      if (w.usage_month === yymm) return sum + (w.units_used_month ?? 0);
-      return sum;
-    }, 0);
+    const chargedUnitsRaw = chargedUnitsRpc.data;
+    const n =
+      typeof chargedUnitsRaw === "bigint"
+        ? Number(chargedUnitsRaw)
+        : typeof chargedUnitsRaw === "number"
+          ? chargedUnitsRaw
+          : typeof chargedUnitsRaw === "string"
+            ? Number(chargedUnitsRaw)
+            : Number(chargedUnitsRaw ?? 0);
+    const chargedUnitsThisMonth = Number.isFinite(n) ? n : 0;
 
     const rawInvites = (invitesRes.data ?? []) as Array<{
       id: string;

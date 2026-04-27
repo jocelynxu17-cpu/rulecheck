@@ -1,5 +1,11 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { filterPaymentEventsForWorkspace } from "@/lib/admin/payment-events-workspace-scope";
+import {
+  INTERNAL_PAYMENT_BATCH_SCAN_MAX,
+  INTERNAL_PAYMENT_PAGE_DEFAULT,
+  INTERNAL_PAYMENT_PAGE_MAX,
+  clampPageSize,
+} from "@/lib/admin/internal-scale-conventions";
 
 export type AdminPaymentEventDetail = {
   id: string;
@@ -13,13 +19,27 @@ export type AdminPaymentEventDetail = {
   user_email: string | null;
 };
 
-export async function loadPaymentEvents(limit = 200): Promise<{
+/**
+ * Global payment_events list with bounded page size (over-fetch one row for `hasNextPage`).
+ * Use `maxLimit` only for internal batch scans (e.g. analysis correlation), not default UI.
+ */
+export async function loadPaymentEvents(options?: {
+  limit?: number;
+  offset?: number;
+  maxLimit?: number;
+}): Promise<{
   rows: AdminPaymentEventDetail[];
   error: string | null;
+  hasNextPage: boolean;
 }> {
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    return { rows: [], error: "未設定 SUPABASE_SERVICE_ROLE_KEY。" };
+    return { rows: [], error: "未設定 SUPABASE_SERVICE_ROLE_KEY。", hasNextPage: false };
   }
+
+  const cap = options?.maxLimit ?? INTERNAL_PAYMENT_PAGE_MAX;
+  const pageSize = clampPageSize(options?.limit, INTERNAL_PAYMENT_PAGE_DEFAULT, cap);
+  const offset = Math.max(0, options?.offset ?? 0);
+  const fetchEnd = offset + pageSize;
 
   try {
     const admin = createAdminClient();
@@ -39,13 +59,17 @@ export async function loadPaymentEvents(limit = 200): Promise<{
       `
       )
       .order("created_at", { ascending: false })
-      .limit(limit);
+      .range(offset, fetchEnd);
 
     if (error) {
-      return { rows: [], error: error.message };
+      return { rows: [], error: error.message, hasNextPage: false };
     }
 
-    const rows: AdminPaymentEventDetail[] = (data ?? []).map((row: Record<string, unknown>) => {
+    const batch = (data ?? []) as Record<string, unknown>[];
+    const hasNextPage = batch.length > pageSize;
+    const slice = batch.slice(0, pageSize);
+
+    const rows: AdminPaymentEventDetail[] = slice.map((row) => {
       const users = row.users as { email: string | null } | { email: string | null }[] | null;
       const email = Array.isArray(users) ? users[0]?.email ?? null : users?.email ?? null;
       return {
@@ -61,20 +85,32 @@ export async function loadPaymentEvents(limit = 200): Promise<{
       };
     });
 
-    return { rows, error: null };
+    return { rows, error: null, hasNextPage };
   } catch (e) {
-    return { rows: [], error: e instanceof Error ? e.message : "載入失敗" };
+    return { rows: [], error: e instanceof Error ? e.message : "載入失敗", hasNextPage: false };
   }
 }
 
-/** 依 workspace_id（payload）或成員 user_id 篩選；先拉取較多筆再過濾。 */
+/** 依 workspace_id（payload）或成員 user_id 篩選；先拉固定上限再過濾，可分頁但僅在該視窗內。 */
 export async function loadPaymentEventsForWorkspace(
   workspaceId: string,
-  fetchLimit = 500
-): Promise<{ rows: AdminPaymentEventDetail[]; error: string | null }> {
-  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    return { rows: [], error: "未設定 SUPABASE_SERVICE_ROLE_KEY。" };
+  options?: {
+    fetchLimit?: number;
+    offset?: number;
+    pageSize?: number;
   }
+): Promise<{ rows: AdminPaymentEventDetail[]; error: string | null; hasNextPage: boolean }> {
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return { rows: [], error: "未設定 SUPABASE_SERVICE_ROLE_KEY。", hasNextPage: false };
+  }
+
+  const fetchLimit = Math.min(options?.fetchLimit ?? INTERNAL_PAYMENT_BATCH_SCAN_MAX, 800);
+  const pageSize = clampPageSize(
+    options?.pageSize,
+    INTERNAL_PAYMENT_PAGE_DEFAULT,
+    INTERNAL_PAYMENT_PAGE_MAX
+  );
+  const offset = Math.max(0, options?.offset ?? 0);
 
   try {
     const admin = createAdminClient();
@@ -85,7 +121,7 @@ export async function loadPaymentEventsForWorkspace(
       .eq("workspace_id", workspaceId);
 
     if (memErr) {
-      return { rows: [], error: memErr.message };
+      return { rows: [], error: memErr.message, hasNextPage: false };
     }
 
     const memberIds = new Set((memRows ?? []).map((r: { user_id: string }) => r.user_id));
@@ -109,10 +145,10 @@ export async function loadPaymentEventsForWorkspace(
       .limit(fetchLimit);
 
     if (error) {
-      return { rows: [], error: error.message };
+      return { rows: [], error: error.message, hasNextPage: false };
     }
 
-    const rows: AdminPaymentEventDetail[] = (data ?? []).map((row: Record<string, unknown>) => {
+    const mapped: AdminPaymentEventDetail[] = (data ?? []).map((row: Record<string, unknown>) => {
       const users = row.users as { email: string | null } | { email: string | null }[] | null;
       const email = Array.isArray(users) ? users[0]?.email ?? null : users?.email ?? null;
       return {
@@ -128,9 +164,11 @@ export async function loadPaymentEventsForWorkspace(
       };
     });
 
-    const filtered = filterPaymentEventsForWorkspace(rows, workspaceId, memberIds);
-    return { rows: filtered, error: null };
+    const filtered = filterPaymentEventsForWorkspace(mapped, workspaceId, memberIds);
+    const hasNextPage = filtered.length > offset + pageSize;
+    const rows = filtered.slice(offset, offset + pageSize);
+    return { rows, error: null, hasNextPage };
   } catch (e) {
-    return { rows: [], error: e instanceof Error ? e.message : "載入失敗" };
+    return { rows: [], error: e instanceof Error ? e.message : "載入失敗", hasNextPage: false };
   }
 }
