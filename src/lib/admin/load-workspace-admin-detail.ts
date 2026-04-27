@@ -6,6 +6,10 @@ import { sinceIsoForWorkspaceRange } from "@/lib/admin/workspace-admin-range";
 import { normalizeAnalysisResult } from "@/lib/analysis-normalize";
 import { analysisStatusLabel } from "@/lib/analysis-normalize";
 import { paymentEventOutcomeTone } from "@/lib/admin/payment-event-ui";
+import {
+  collectAnalysisOpsHintsFromResult,
+  mergeHintLabels,
+} from "@/lib/admin/workspace-analysis-ops-hints";
 
 export type AdminWorkspaceDetailRow = {
   id: string;
@@ -19,6 +23,7 @@ export type AdminWorkspaceDetailRow = {
   units_used_month: number;
   usage_month: string;
   created_at: string;
+  created_by: string | null;
 };
 
 export type AdminWorkspaceMemberRow = {
@@ -42,6 +47,9 @@ export type AdminWorkspaceAnalysisRow = {
   input_type: string | null;
   units_charged: number | null;
   user_id: string;
+  findings_count: number;
+  /** 規則後備／OCR／PDF 等提示摘要 */
+  ops_hints_line: string | null;
 };
 
 export type UsageSummaryBucket = { events: number; units: number };
@@ -76,11 +84,21 @@ export type AdminWorkspaceRiskyAnalysisRow = {
   status_label: string;
 };
 
+/** 區間內掃描樣本（最多 800 筆分析之 result）得來的營運信號；非全量統計。 */
+export type AdminWorkspaceOperationalSignals = {
+  rows_scanned: number;
+  rows_with_mock_pipeline: number;
+  rows_with_low_ocr_hint: number;
+  rows_with_pdf_text_gap_hint: number;
+  rows_with_image_ocr_short_hint: number;
+};
+
 export type AdminWorkspaceDetailPayload = {
   range: AdminWorkspaceRange;
   sinceIso: string;
   workspace: AdminWorkspaceDetailRow | null;
   members: AdminWorkspaceMemberRow[];
+  operationalSignals: AdminWorkspaceOperationalSignals;
   usageByInputType: AdminWorkspaceUsageByInputType;
   memberUsageRanking: AdminWorkspaceMemberUsageRank[];
   riskFindingCounts: AdminWorkspaceRiskFindingCounts;
@@ -131,11 +149,20 @@ export async function loadWorkspaceAdminDetail(
   range: AdminWorkspaceRange
 ): Promise<AdminWorkspaceDetailPayload> {
   const sinceIso = sinceIsoForWorkspaceRange(range);
+  const emptyOperationalSignals: AdminWorkspaceOperationalSignals = {
+    rows_scanned: 0,
+    rows_with_mock_pipeline: 0,
+    rows_with_low_ocr_hint: 0,
+    rows_with_pdf_text_gap_hint: 0,
+    rows_with_image_ocr_short_hint: 0,
+  };
+
   const emptyBase = {
     range,
     sinceIso,
     workspace: null,
     members: [] as AdminWorkspaceMemberRow[],
+    operationalSignals: emptyOperationalSignals,
     usageByInputType: emptyBuckets(),
     memberUsageRanking: [] as AdminWorkspaceMemberUsageRank[],
     riskFindingCounts: {
@@ -166,7 +193,7 @@ export async function loadWorkspaceAdminDetail(
     const { data: ws, error: wsErr } = await admin
       .from("workspaces")
       .select(
-        "id, name, plan, subscription_status, billing_provider, monthly_quota_units, current_period_end, cancel_at_period_end, units_used_month, usage_month, created_at"
+        "id, name, plan, subscription_status, billing_provider, monthly_quota_units, current_period_end, cancel_at_period_end, units_used_month, usage_month, created_at, created_by"
       )
       .eq("id", workspaceId)
       .maybeSingle();
@@ -274,7 +301,7 @@ export async function loadWorkspaceAdminDetail(
 
     const { data: anaRecent, error: anaErr } = await admin
       .from("analysis_logs")
-      .select("id, created_at, input_type, units_charged, user_id")
+      .select("id, created_at, input_type, units_charged, user_id, input_text, result")
       .eq("workspace_id", workspaceId)
       .gte("created_at", sinceIso)
       .order("created_at", { ascending: false })
@@ -284,9 +311,32 @@ export async function loadWorkspaceAdminDetail(
       return { ...emptyBase, error: anaErr.message };
     }
 
+    const analysesMapped: AdminWorkspaceAnalysisRow[] = (anaRecent ?? []).map((raw) => {
+      const row = raw as {
+        id: string;
+        created_at: string;
+        input_type: string | null;
+        units_charged: number | null;
+        user_id: string;
+        input_text: string | null;
+        result: unknown;
+      };
+      const norm = normalizeAnalysisResult(row.result, row.input_text ?? "");
+      const hints = collectAnalysisOpsHintsFromResult(row.result, row.input_text ?? "", row.input_type);
+      return {
+        id: row.id,
+        created_at: row.created_at,
+        input_type: row.input_type,
+        units_charged: row.units_charged,
+        user_id: row.user_id,
+        findings_count: norm.findings.length,
+        ops_hints_line: hints.length ? mergeHintLabels(hints) : null,
+      };
+    });
+
     const { data: anaRiskRows, error: anaRiskErr } = await admin
       .from("analysis_logs")
-      .select("id, created_at, input_text, result")
+      .select("id, created_at, input_text, input_type, result")
       .eq("workspace_id", workspaceId)
       .gte("created_at", sinceIso)
       .order("created_at", { ascending: false })
@@ -299,13 +349,34 @@ export async function loadWorkspaceAdminDetail(
     const riskRows = anaRiskRows ?? [];
     const analysesRiskTruncated = riskRows.length >= ANALYSIS_RESULT_FOR_RISK_CAP;
 
+    const operationalSignals: AdminWorkspaceOperationalSignals = {
+      rows_scanned: riskRows.length,
+      rows_with_mock_pipeline: 0,
+      rows_with_low_ocr_hint: 0,
+      rows_with_pdf_text_gap_hint: 0,
+      rows_with_image_ocr_short_hint: 0,
+    };
+
     let high = 0;
     let medium = 0;
     let low = 0;
     let analyses_with_any_finding = 0;
     const riskyScratch: AdminWorkspaceRiskyAnalysisRow[] = [];
 
-    for (const row of riskRows as { id: string; created_at: string; input_text: string; result: unknown }[]) {
+    for (const row of riskRows as {
+      id: string;
+      created_at: string;
+      input_text: string;
+      input_type: string | null;
+      result: unknown;
+    }[]) {
+      const hintList = collectAnalysisOpsHintsFromResult(row.result, row.input_text ?? "", row.input_type);
+      if (hintList.some((h) => h.includes("後備"))) operationalSignals.rows_with_mock_pipeline += 1;
+      if (hintList.some((h) => h.includes("OCR 信心偏低"))) operationalSignals.rows_with_low_ocr_hint += 1;
+      if (hintList.some((h) => h.includes("PDF") && h.includes("頁無文字")))
+        operationalSignals.rows_with_pdf_text_gap_hint += 1;
+      if (hintList.some((h) => h.includes("圖片文字軌"))) operationalSignals.rows_with_image_ocr_short_hint += 1;
+
       const result = normalizeAnalysisResult(row.result, row.input_text ?? "");
       const findings = result.findings;
       if (findings.length) analyses_with_any_finding += 1;
@@ -400,13 +471,14 @@ export async function loadWorkspaceAdminDetail(
       sinceIso,
       workspace: ws as AdminWorkspaceDetailRow,
       members,
+      operationalSignals,
       usageByInputType,
       memberUsageRanking,
       riskFindingCounts: { high, medium, low, analyses_with_any_finding },
       riskyAnalysesRecent,
       analysesRiskTruncated,
       usageEvents: usageRows.slice(0, 40),
-      analyses: (anaRecent ?? []) as AdminWorkspaceAnalysisRow[],
+      analyses: analysesMapped,
       paymentEvents,
       anomalyPaymentEvents,
       billingLifecyclePaymentEvents,
